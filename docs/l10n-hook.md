@@ -144,7 +144,8 @@ READY requires state application, completion of tracked preview/construction
 jobs and at least two completed draws with unchanged layout and no remaining
 Scene2D actions or pending tracked work. Partial target screens are not drawn
 while background jobs are pending, so asynchronous completion cannot change
-lazy font-atlas packing order. Slider values show immediately without a fade
+lazy font-atlas packing order. Retired menu/preview jobs are cancelled; a queued
+menu callback checks its disposed owner before touching global fonts/resources. Slider values show immediately without a fade
 or hide timer; world tile updates use stable insertion order for border blending. Before READY, scroll instructions are
 verified again and GL commands completed. If a completed draw changes nested
 pane bounds, positioning is reapplied and the two-frame gate starts over. In hook mode, stage clocks use zero delta during setup and do not

@@ -76,6 +76,7 @@ class MainMenuScreen: BaseScreen(), RecreateOnResize {
 
     private var backgroundMapGenerationJob: Job? = null
     private var backgroundMapExists = false
+    private var l10nDisposed = false
     internal var l10nBackgroundPending = false
         private set
 
@@ -286,6 +287,9 @@ class MainMenuScreen: BaseScreen(), RecreateOnResize {
                 })
 
             launchOnGLThread { // for GL context
+                // A cancelled job may already have queued this independent GL callback.
+                // A retired menu must not reset fonts/resources belonging to the next request.
+                if (l10nDisposed) return@launchOnGLThread
                 ImageGetter.setNewRuleset(backgroundMapRuleset, ignoreIfModsAreEqual = true)
                 val mapHolder = EditorMapHolder(
                     this@MainMenuScreen,
@@ -406,6 +410,14 @@ class MainMenuScreen: BaseScreen(), RecreateOnResize {
         ImageGetter.setNewRuleset(ruleset)
         setSkin()
         openCivilopedia(ruleset, link = link)
+    }
+
+    override fun dispose() {
+        if (game.l10nHook?.active == true) {
+            l10nDisposed = true
+            stopBackgroundMapGeneration()
+        }
+        super.dispose()
     }
 
     override fun recreate(): BaseScreen {

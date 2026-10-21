@@ -473,5 +473,11 @@ class NewGameScreen(
         newGameOptionsTable.update()
     }
 
+    override fun dispose() {
+        if (game.l10nHook?.active == true && mapOptionsTableInitialized)
+            mapOptionsTable.cancelBackgroundJobs()
+        super.dispose()
+    }
+
     override fun recreate(): BaseScreen = NewGameScreen(gameSetupInfo)
 }
