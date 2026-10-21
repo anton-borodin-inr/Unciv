@@ -158,7 +158,7 @@ class MapParametersTable(
         val mapParametersForExample =
             if (forMapEditor) mapParameters
             else mapParameters.clone().apply {
-                seed = 0
+                seed = if (UncivGame.Current.l10nHook?.active == true) 40 else 0
                 mirroring = MirroringType.none
             }
         exampleMapJob = Concurrency.run("Generate example map") {

@@ -273,13 +273,16 @@ class MainMenuScreen: BaseScreen(), RecreateOnResize {
 
             val newMap = MapGenerator(backgroundMapRuleset, this)
                 .generateMap(MapParameters().apply {
-                    if (game.l10nHook?.active == true) seed = 0L
+                    if (game.l10nHook?.active == true) seed = 40L // Zero means wall-clock seed.
                     shape = MapShape.rectangular
                     mapSize = backgroundMapSize
                     type = MapType.pangaea
                     temperatureintensity = .7f
                     waterThreshold = -0.1f // mainly land, gets about 30% water
-                    modifyForEasterEgg()
+                    if (game.l10nHook?.active == true) {
+                        temperatureShift = 0f
+                        rareFeaturesRichness = .15f
+                    } else modifyForEasterEgg()
                 })
 
             launchOnGLThread { // for GL context

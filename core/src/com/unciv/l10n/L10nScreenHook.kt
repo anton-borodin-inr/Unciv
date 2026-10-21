@@ -16,6 +16,7 @@ import com.unciv.models.metadata.GameSetupInfo
 import com.unciv.models.metadata.Player
 import com.unciv.models.ruleset.RulesetCache
 import com.unciv.ui.components.widgets.ExpanderTab
+import com.unciv.ui.images.ImageGetter
 import com.unciv.ui.popups.Popup
 import com.unciv.ui.popups.options.OptionsPopup
 import com.unciv.ui.popups.options.OptionsPopupPages
@@ -166,6 +167,9 @@ class L10nScreenHook(private val game: UncivGame) {
                     require(game.files.getSave(name).exists()) { "save_not_found" }
                     val saved = game.files.loadGameByName(name)
                     require(!saved.gameParameters.isOnlineMultiplayer) { "multiplayer_save_not_supported" }
+                    // Fonts are incremental atlases: their packing and mipmaps otherwise depend
+                    // on the previously visited screens, even when the saved game is reloaded.
+                    withGLContext { ImageGetter.setNewRuleset(saved.ruleset) }
                     game.loadGame(saved, callFromLoadScreen = true)
                 }
                 withGLContext {
