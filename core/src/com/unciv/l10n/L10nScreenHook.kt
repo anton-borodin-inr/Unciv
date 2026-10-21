@@ -105,7 +105,8 @@ class L10nScreenHook(private val game: UncivGame) {
         try {
             if (!applied) {
                 if (hasPendingWork(screen)) {
-                    screen.render(0f)
+                    // Drawing a partial UI would pack lazy glyphs in timing-dependent order.
+                    // Preview/construction jobs complete through GL callbacks without a draw.
                     checkTimeout()
                     Gdx.graphics.requestRendering()
                     return true

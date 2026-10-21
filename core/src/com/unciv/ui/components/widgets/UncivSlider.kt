@@ -275,7 +275,8 @@ class UncivSlider (
             TipType.Auto -> {
                 if (!tipHideTask.isScheduled) showTip()
                 tipHideTask.cancel()
-                Timer.schedule(tipHideTask, hideDelay)
+                if (UncivGame.Current.l10nHook?.active != true)
+                    Timer.schedule(tipHideTask, hideDelay)
             }
             TipType.Permanent -> showTip()
         }
@@ -367,6 +368,11 @@ class UncivSlider (
             setScale(0.05f)
         }
         addActor(tipContainer)
+        if (UncivGame.Current.l10nHook?.active == true) {
+            tipContainer.color.a = 1f
+            tipContainer.setScale(1f)
+            return
+        }
         tipContainer.addAction(
             Actions.parallel(
                 Actions.fadeIn(tipAnimationDuration, Interpolation.fade),

@@ -47,7 +47,9 @@ class WorldMapHolder(
     internal val tileMap: TileMap
 ) : ZoomableScrollPane(20f, 20f) {
     internal var selectedTile: TileView? = null
-    val tileGroups = HashMap<TileView, WorldTileGroup>()
+    // Late border actors inherit this update order; identity hashes vary across reloads.
+    val tileGroups: HashMap<TileView, WorldTileGroup> =
+        if (UncivGame.Current.l10nHook?.active == true) LinkedHashMap() else HashMap()
 
     /** Holds buttons created by [OverlayButtonData] implementations */
     internal val unitActionOverlays: ArrayList<Actor> = ArrayList()
