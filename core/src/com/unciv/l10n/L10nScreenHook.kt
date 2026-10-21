@@ -2,6 +2,7 @@ package com.unciv.l10n
 
 import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.graphics.GL20
+import com.badlogic.gdx.graphics.g2d.BitmapFont
 import com.badlogic.gdx.math.Vector2
 import com.badlogic.gdx.scenes.scene2d.Actor
 import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane
@@ -52,6 +53,15 @@ class L10nScreenHook(private val game: UncivGame) {
     private var terminal = false
     private var started = 0L
     private val frames = L10nReadyFrames()
+    private val retiredFonts = LinkedHashSet<BitmapFont>()
+
+    /** Old picker widgets can still use a replaced font until their screen is disposed. */
+    internal fun retireFont(font: BitmapFont) { if (active) retiredFonts.add(font) }
+
+    private fun releaseRetiredFonts() {
+        retiredFonts.forEach { it.dispose() }
+        retiredFonts.clear()
+    }
 
     fun enqueue(screen: String, token: String, decodedJson: String?) {
         leavePending = false
@@ -70,6 +80,7 @@ class L10nScreenHook(private val game: UncivGame) {
     private fun leave() {
         // Dispose hook widgets while persistence is still blocked, then restore ordinary settings.
         game.l10nReset(object : BaseScreen() {})
+        releaseRetiredFonts()
         game.settings = game.files.getGeneralSettings()
         active = false
         game.l10nReset(MainMenuScreen())
@@ -144,6 +155,7 @@ class L10nScreenHook(private val game: UncivGame) {
         frames.reset(); started = System.nanoTime()
         // Dispose the complete previous stack before reading fresh settings or a fresh save.
         game.l10nReset(object : BaseScreen() {})
+        releaseRetiredFonts()
         game.settings = game.files.getGeneralSettings().apply {
             showTutorials = false
             enableEasterEggs = false

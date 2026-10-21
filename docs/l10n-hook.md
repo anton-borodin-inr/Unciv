@@ -26,7 +26,9 @@ Submit sequentially, waiting for a terminal log event before the next request.
 
 Every request disposes the previous screen stack, rereads settings, reloads the
 named save from disk, resets ruleset/font resources and constructs the screen again.
-New Game resources are reset before its inherited picker widgets are constructed. The previous selection,
+New Game resources are reset before its inherited picker widgets are constructed.
+Replaced font atlases are retained only until the old screen stack is disposed,
+then released; no live widget loses its font during a rebuild. The previous selection,
 tab, expanded sections and scroll positions are not reused. Language comes
 only from normal `GameSettings.json`. Restart the app after changing language.
 
