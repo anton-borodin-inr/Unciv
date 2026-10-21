@@ -61,7 +61,7 @@ class L10nScreenHook(private val game: UncivGame) {
     fun requestLeave() {
         leavePending = true
         for ((screen, token, _) in queue)
-            Log.debug("L10N_SCREEN_ERROR %s request=%s reason=normal_launch_requested", safe(screen), safe(token))
+            emit("L10N_SCREEN_ERROR ${safe(screen)} request=${safe(token)} reason=normal_launch_requested")
         queue.clear()
         Gdx.graphics.requestRendering()
     }
@@ -103,8 +103,7 @@ class L10nScreenHook(private val game: UncivGame) {
                 // All transitions are disabled in hook mode. Remove perpetual decorative actions.
                 for (actor in L10nScrollState.actors(screen.stage.root)) actor.clearActions()
                 scrollState = L10nScrollState(screen.stage.root, current)
-                Log.debug("L10N_SCREEN_PANES %s request=%s panes=%s", current.screen, current.token,
-                    scrollState!!.panes.keys.joinToString(","))
+                emit("L10N_SCREEN_PANES ${current.screen} request=${current.token} panes=${scrollState!!.panes.keys.joinToString(",")}")
                 scrollState!!.apply()
                 applied = true
             }
@@ -114,11 +113,23 @@ class L10nScreenHook(private val game: UncivGame) {
             screen.stage.draw()
             val actors = L10nScrollState.actors(screen.stage.root)
             val quiet = !hasPendingWork(screen) && actors.none { it.hasActions() || ((it is com.badlogic.gdx.scenes.scene2d.ui.Widget && it.needsLayout()) || (it is com.badlogic.gdx.scenes.scene2d.ui.WidgetGroup && it.needsLayout())) }
+            if (quiet && !terminal) {
+                try { scrollState!!.verify() }
+                catch (_: IllegalArgumentException) {
+                    // A first draw can finalize nested pane bounds. Apply against that layout,
+                    // then require two new quiet draws; unresolved/range errors still fail.
+                    checkTimeout()
+                    scrollState!!.apply()
+                    frames.reset()
+                    Gdx.graphics.requestRendering()
+                    return true
+                }
+            }
             if (frames.rendered(quiet, scrollState!!.layoutSignature()) && !terminal) {
                 scrollState!!.verify()
                 Gdx.gl.glFinish()
                 terminal = true
-                Log.debug("L10N_SCREEN_READY %s request=%s frames=%s", current.screen, current.token, frames.quietFrames)
+                emit("L10N_SCREEN_READY ${current.screen} request=${current.token} frames=${frames.quietFrames}")
             }
             if (!terminal) { checkTimeout(); Gdx.graphics.requestRendering() }
         } catch (ex: Exception) {
@@ -201,7 +212,7 @@ class L10nScreenHook(private val game: UncivGame) {
                 val cityView = view.getCityView(city.single())
                 val name = selected.getString("construction")
                 require(name in game.gameInfo!!.ruleset.units || name in game.gameInfo!!.ruleset.buildings) { "unknown_construction" }
-                CityScreen(cityView).apply { selectConstruction(name) }
+                CityScreen(cityView, cityView.constructions.getConstruction(name))
             }
             "empire-stats" -> EmpireOverviewScreen(view.civView, EmpireOverviewCategories.Stats)
             "policy-picker" -> PolicyPickerScreen(civ, world.isPlayersTurn).apply { l10nSetExpanded(r.expanded) }
@@ -218,7 +229,7 @@ class L10nScreenHook(private val game: UncivGame) {
                 val point = unitKey.get("tile")
                 val units = game.gameInfo!!.civilizations.filter { it.civID == unitKey.getString("owner") }
                     .flatMap { it.units.getCivUnits().toList() }.filter {
-                        it.name == unitKey.getString("name") && it.currentTile.position == Vector2(point.getFloat(0), point.getFloat(1))
+                        it.name == unitKey.getString("name") && it.currentTile.position == Vector2(point.getFloat(0), point.getFloat(1)).toHexCoord()
                     }
                 require(units.size == 1 && units.single().civ == civ) { "unknown_or_ambiguous_unit" }
                 val camera = r.state.get("camera")
@@ -276,8 +287,11 @@ class L10nScreenHook(private val game: UncivGame) {
         loading = false; target = null; terminal = true
         game.l10nReset(object : BaseScreen() {})
         Gdx.input.inputProcessor = null
-        Log.debug("L10N_SCREEN_ERROR %s request=%s reason=%s", safe(screen), safe(token), safe(reason))
+        emit("L10N_SCREEN_ERROR ${safe(screen)} request=${safe(token)} reason=${safe(reason)}")
     }
+
+    /** Capture events are a protocol, independent of the optional general debug-log switch. */
+    private fun emit(message: String) = Log.backend.debug(com.unciv.utils.Tag("L10nScreenHook"), Thread.currentThread().name, message)
 
     private fun safe(value: String) = value.replace(Regex("[^A-Za-z0-9._,:-]"), "_").take(512).ifBlank { "missing" }
 

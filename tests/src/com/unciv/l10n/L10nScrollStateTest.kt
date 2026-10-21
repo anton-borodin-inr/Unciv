@@ -59,4 +59,20 @@ class L10nScrollStateTest {
         pane.scrollY = 10f
         assertThrows(IllegalArgumentException::class.java) { state.verify() }
     }
+    @Test fun aChangedContentHeightCanBeReappliedBeforeTheQuietFrameGate() {
+        val (state, pane) = ui(anchors = """{"tech-tree":{"technology":"Mining","align":"visible"}}""")
+        state.apply()
+        pane.actor.height += 100f
+        pane.invalidate()
+        pane.validate()
+        state.apply()
+        state.verify()
+    }
+
+    @Test fun anOversizedAnchorFailsRatherThanHidingItsClippedEdge() {
+        val (state, pane) = ui(anchors = """{"tech-tree":{"technology":"Mining","align":"visible"}}""")
+        (pane.actor as Group).children.first().width = 150f
+        assertThrows(IllegalArgumentException::class.java) { state.apply() }
+    }
+
 }

@@ -132,6 +132,7 @@ L10N_SCREEN_READY tech-picker request=de-tech-001 frames=2
 L10N_SCREEN_ERROR tech-picker request=de-tech-001 reason=save_not_found
 ```
 
+Capture protocol events are emitted even when general debug logging is disabled.
 One terminal READY or ERROR is emitted per sequential request. Wait on the
 exact screen id and request id in fresh logcat output; `am start -W` only waits
 for the Android activity, not the LibGDX screen. Do not use a fixed settle delay.
@@ -139,7 +140,8 @@ for the Android activity, not the LibGDX screen. Do not use a fixed settle delay
 READY requires state application, completion of tracked preview/construction
 jobs and at least two completed draws with unchanged layout and no remaining
 Scene2D actions or pending tracked work. Before READY, scroll instructions are
-verified again and GL commands completed. In hook mode, stage clocks do not
+verified again and GL commands completed. If a completed draw changes nested
+pane bounds, positioning is reapplied and the two-frame gate starts over. In hook mode, stage clocks do not
 advance after application: map/unit/transition/cursor actions are frozen.
 The main-menu background uses seed 0 without fade or periodic replacement;
 the upstream New Game preview already uses seed 0. Unexpected popups and

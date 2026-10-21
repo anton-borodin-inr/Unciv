@@ -52,7 +52,7 @@ class L10nScrollState(private val root: Group, private val request: L10nRequest)
         val point = actor.localToAscendantCoordinates(pane.actor, Vector2())
         val align = anchor.getString("align")
         when (align) {
-            "visible" -> pane.scrollTo(point.x, point.y, actor.width, actor.height)
+            "visible" -> pane.scrollTo(point.x - 2f, point.y - 2f, actor.width + 4f, actor.height + 4f)
             "center" -> pane.scrollTo(point.x, point.y, actor.width, actor.height, true, true)
             else -> {
                 val x = if (align == "start") point.x else point.x + actor.width - pane.scrollWidth
