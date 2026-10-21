@@ -199,7 +199,11 @@ class L10nScreenHook(private val game: UncivGame) {
             return menu
         }
         if (r.screen == "new-game") {
-            val screen = NewGameScreen(newGameSetup(r.state.get("new_game")))
+            val setup = newGameSetup(r.state.get("new_game"))
+            // PickerPane builds its buttons before NewGameScreen refreshes its ruleset.
+            // Give those inherited widgets fresh fonts too, not the previous screen atlas.
+            ImageGetter.setNewRuleset(RulesetCache.getComplexRuleset(setup.gameParameters))
+            val screen = NewGameScreen(setup)
             game.l10nReset(screen)
             return screen
         }

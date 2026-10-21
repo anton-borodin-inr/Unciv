@@ -25,7 +25,8 @@ for each request. Requests work on both cold startup and `onNewIntent`.
 Submit sequentially, waiting for a terminal log event before the next request.
 
 Every request disposes the previous screen stack, rereads settings, reloads the
-named save from disk, resets ruleset/font resources and constructs the screen again. The previous selection,
+named save from disk, resets ruleset/font resources and constructs the screen again.
+New Game resources are reset before its inherited picker widgets are constructed. The previous selection,
 tab, expanded sections and scroll positions are not reused. Language comes
 only from normal `GameSettings.json`. Restart the app after changing language.
 
@@ -141,7 +142,7 @@ READY requires state application, completion of tracked preview/construction
 jobs and at least two completed draws with unchanged layout and no remaining
 Scene2D actions or pending tracked work. Before READY, scroll instructions are
 verified again and GL commands completed. If a completed draw changes nested
-pane bounds, positioning is reapplied and the two-frame gate starts over. In hook mode, stage clocks do not
+pane bounds, positioning is reapplied and the two-frame gate starts over. In hook mode, stage clocks use zero delta during setup and do not
 advance after application: map/unit/transition/cursor actions are frozen.
 The main-menu background and New Game preview use seed 40 in hook mode
 without seasonal variation, fade or periodic replacement. Upstream seed 0 means current time,

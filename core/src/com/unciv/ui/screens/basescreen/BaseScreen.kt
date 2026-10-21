@@ -123,7 +123,8 @@ abstract class BaseScreen : Screen {
             }
         }
 
-        stage.act()
+        // Capture setup must not advance animation clocks before the hook freezes actions.
+        if (game.l10nHook?.active == true) stage.act(0f) else stage.act()
         stage.draw()
     }
 
