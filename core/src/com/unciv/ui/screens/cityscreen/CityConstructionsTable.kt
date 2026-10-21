@@ -83,6 +83,9 @@ class CityConstructionsTable(private val cityScreen: CityScreen) {
     private val availableConstructionsTable = Table()
     private val lowerTableScrollCell: Cell<ScrollPane>
 
+    private var l10nPendingCount = 0
+    internal val l10nPending get() = l10nPendingCount > 0
+
     private val pad = 10f
     private val miniQueueHeight = 54f
     private val posFromEdge = CityScreen.posFromEdge
@@ -100,6 +103,7 @@ class CityConstructionsTable(private val cityScreen: CityScreen) {
 
     init {
         constructionsQueueScrollPane = ScrollPane(constructionsQueueTable.addBorder(2f, Color.WHITE))
+        constructionsQueueScrollPane.name = "l10n-pane:production-queue"
         constructionsQueueScrollPane.setOverscroll(false, false)
         constructionsQueueTable.background = BaseScreen.skinStrings.getUiBackground(
             "CityScreen/CityConstructionTable/ConstructionsQueueTable",
@@ -129,6 +133,7 @@ class CityConstructionsTable(private val cityScreen: CityScreen) {
             .padBottom(pad).row()
 
         availableConstructionsScrollPane = ScrollPane(availableConstructionsTable.addBorder(2f, Color.WHITE))
+        availableConstructionsScrollPane.name = "l10n-pane:constructions"
         availableConstructionsScrollPane.setOverscroll(false, false)
         availableConstructionsTable.background = BaseScreen.skinStrings.getUiBackground(
             "CityScreen/CityConstructionTable/AvailableConstructionsTable",
@@ -337,6 +342,7 @@ class CityConstructionsTable(private val cityScreen: CityScreen) {
             availableConstructionsTable.add(Constants.loading.toLabel()).pad(10f)
         }
 
+        l10nPendingCount++
         Concurrency.run("Construction info gathering - ${cityView.name}") {
             // Since this can be a heavy operation and leads to many ANRs on older phones we put the metadata-gathering in another thread.
             val constructionButtonDTOList = getConstructionButtonDTOs()
@@ -403,6 +409,7 @@ class CityConstructionsTable(private val cityScreen: CityScreen) {
                 }
                 lowerTable.pack()
                 availableConstructionsTable.adjustContextMenuIndicators()
+                l10nPendingCount--
             }
         }
     }
@@ -506,6 +513,7 @@ class CityConstructionsTable(private val cityScreen: CityScreen) {
     private fun getConstructionButton(constructionButtonDTO: ConstructionButtonDTO): Table {
         val construction = constructionButtonDTO.construction
         val pickConstructionButton = Table().apply {
+            name = "l10n-anchor:construction:${construction.name}"
             isTransform = false
             align(Align.left).pad(5f)
             touchable = Touchable.enabled

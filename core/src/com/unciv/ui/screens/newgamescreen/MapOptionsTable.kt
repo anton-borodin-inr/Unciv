@@ -77,6 +77,8 @@ class MapOptionsTable(private val newGameScreen: NewGameScreen) : Table() {
         return scenarioOptionsTable.selectedScenario
     }
 
+    internal val l10nHasPendingWork get() = generatedMapOptionsTable.l10nPreviewPending || randomMapOptionsTable.l10nPreviewPending
+
     internal fun cancelBackgroundJobs() {
         generatedMapOptionsTable.cancelBackgroundJobs()
         randomMapOptionsTable.cancelBackgroundJobs()

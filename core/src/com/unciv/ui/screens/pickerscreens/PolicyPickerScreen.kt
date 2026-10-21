@@ -162,9 +162,9 @@ class PolicyPickerScreen(
 
     private val policyNameToButton = HashMap<String, PolicyButton>()
     private var selectedPolicyButton: PolicyButton? = null
+    private val branchToGroup = HashMap<String, BranchGroup>()
 
     init {
-        val branchToGroup = HashMap<String, BranchGroup>()
 
         val policies = viewingCiv.policies
         displayTutorial(TutorialTrigger.CultureAndPolicies)
@@ -219,7 +219,7 @@ class PolicyPickerScreen(
         }
 
         for ((index, branch) in branches.values.withIndex()){
-            val branchGroup = BranchGroup(branch)
+            val branchGroup = BranchGroup(branch).apply { name = "l10n-anchor:branch:${branch.name}" }
             branchToGroup[branch.name] = branchGroup
 
             val rowNumber = index / branchesPerRow
@@ -249,6 +249,12 @@ class PolicyPickerScreen(
             in branches -> branchToGroup[select]?.toggle()
             in policyNameToButton -> pickPolicy(policyNameToButton[select]!!)
         }
+    }
+
+    internal fun l10nSetExpanded(names: Set<String>) {
+        require(branchToGroup.keys.containsAll(names)) { "unknown_policy_branch" }
+        for ((name, group) in branchToGroup) if (group.isExpanded != (name in names)) group.toggle()
+        topTable.invalidateHierarchy()
     }
 
     override fun getCivilopediaRuleset() = viewingCiv.gameInfo.ruleset
@@ -282,6 +288,7 @@ class PolicyPickerScreen(
      * @return a [Table], with outer padding _zero_
      */
     private inner class BranchGroup(branch: PolicyBranch) : BorderedTable(path = "PolicyScreen/PolicyBranchBackground") {
+        val isExpanded get() = groupCell.actor == group
         private val header = getBranchHeader(branch)
         private val group = Group()
         private val groupCell: Cell<Group>
