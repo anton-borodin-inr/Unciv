@@ -127,7 +127,7 @@ internal interface OptionsPopupHelpers {
     fun <T> Table.addSelectBox(text: String, property: KMutableProperty0<T>, items: Iterable<T>, action: ((T, T) -> Unit)? = null): SelectBox<T> {
         add(text.toLabel()).left().fillX()
 
-        val select = SelectBox<T>(BaseScreen.skin)
+        val select = com.unciv.ui.components.widgets.L10nSelectBox<T>(BaseScreen.skin)
         select.setItems(items.toGdxArray())
         select.selected = property.get()
         add(select).pad(10f).minWidth(rightWidgetMinWidth).right().row()
@@ -198,7 +198,7 @@ internal interface OptionsPopupHelpers {
         val label = text.toLabel(Color.GRAY)
         label.wrap = true
         add(label).left().fillX()
-        val select = SelectBox<T>(BaseScreen.skin)
+        val select = com.unciv.ui.components.widgets.L10nSelectBox<T>(BaseScreen.skin)
         select.isDisabled = true
         add(select).pad(10f).minWidth(rightWidgetMinWidth).right().row()
 

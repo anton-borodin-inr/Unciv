@@ -21,6 +21,10 @@ import com.unciv.ui.components.input.keyShortcuts
  * - constructors same as standard TextField, plus a cloning constructor.
  */
 open class TextFieldWithFixes private constructor(text: String, style: TextFieldStyle) : TextField(text, style) {
+    override fun draw(batch: Batch, parentAlpha: Float) = com.unciv.l10n.L10nDrawObserver.withOwner(this) {
+        super.draw(batch, parentAlpha)
+    }
+
     internal constructor(text: String, skin: Skin) : this(text, skin.get(TextFieldStyle::class.java))
     internal constructor(textField: TextFieldWithFixes) : this(textField.text, textField.style) {
         textFieldFilter = textField.textFieldFilter

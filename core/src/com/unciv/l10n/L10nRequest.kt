@@ -4,7 +4,8 @@ import com.badlogic.gdx.utils.JsonReader
 import com.badlogic.gdx.utils.JsonValue
 
 /** Versioned capture protocol. Android decodes base64 before calling this parser. */
-data class L10nRequest(val screen: String, val token: String, val state: JsonValue) {
+data class L10nRequest(val screen: String, val token: String, val state: JsonValue,
+                       val protocolVersion: Int = 1, val stateSha256: String = "") {
     val save: String? get() = state.get("save").let { if (it.isNull) null else it.asString() }
     val selection: JsonValue get() = state.get("selection")
     val expanded: Set<String> get() = state.get("expanded_sections").map { it.asString() }.toSet()
@@ -14,7 +15,8 @@ data class L10nRequest(val screen: String, val token: String, val state: JsonVal
             "empire-stats", "policy-picker", "victory-status", "civilopedia", "world", "city-state-diplomacy")
         private val menuScreens = setOf("options-gameplay", "new-game")
 
-        fun parse(screen: String, token: String, json: String): L10nRequest {
+        fun parse(screen: String, token: String, json: String, protocol: String? = null): L10nRequest {
+            require(protocol == null || protocol == "2") { "unsupported_protocol" }
             require(screen in screens) { "unknown_screen" }
             require(token.matches(Regex("[A-Za-z0-9._-]{1,64}"))) { "invalid_request_id" }
             require(json.toByteArray(Charsets.UTF_8).size <= 32768) { "state_too_large" }
@@ -90,7 +92,7 @@ data class L10nRequest(val screen: String, val token: String, val state: JsonVal
             val setup = state.get("new_game")
             if (screen == "new-game") validateNewGame(setup)
             else require(setup.isNull) { "new_game_not_applicable" }
-            return L10nRequest(screen, token, state)
+            return L10nRequest(screen, token, state, if (protocol == "2") 2 else 1, l10nSha256(json.toByteArray(Charsets.UTF_8)))
         }
 
         private fun validateNewGame(setup: JsonValue) {

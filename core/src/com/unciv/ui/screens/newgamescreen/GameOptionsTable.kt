@@ -515,7 +515,7 @@ class GameOptionsTable(
         }
         
         fun createTimeCell(intValues: Array<Int>, initialValue: Int, suffix: String): SelectBox<String> {
-            val timeBox = SelectBox<String>(BaseScreen.skin)
+            val timeBox = com.unciv.ui.components.widgets.L10nSelectBox<String>(BaseScreen.skin)
             val stringValues =  Array(intValues.size) { i -> "${intValues[i]}" + suffix }
             timeBox.setItems(*stringValues)
             timeBox.selected = "$initialValue" + suffix

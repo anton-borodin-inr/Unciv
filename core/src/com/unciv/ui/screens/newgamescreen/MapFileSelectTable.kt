@@ -52,8 +52,8 @@ class MapFileSelectTable(
     private val newGameScreen: NewGameScreen,
     private val mapParameters: MapParameters
 ) : Table() {
-    private val mapCategorySelectBox = SelectBox<String>(BaseScreen.skin)
-    private val mapFileSelectBox = SelectBox<MapWrapper>(BaseScreen.skin)
+    private val mapCategorySelectBox = com.unciv.ui.components.widgets.L10nSelectBox<String>(BaseScreen.skin)
+    private val mapFileSelectBox = com.unciv.ui.components.widgets.L10nSelectBox<MapWrapper>(BaseScreen.skin)
     private val loadingIcon = LoadingImage(30f, LoadingImage.Style(loadingColor = Color.SCARLET))
     private val useNationsFromMapButton = "Select players from starting locations".toTextButton(SmallButtonStyle())
     private val useNationsButtonCell: Cell<Actor?>

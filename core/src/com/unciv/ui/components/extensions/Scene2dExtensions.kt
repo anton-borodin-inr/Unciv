@@ -291,7 +291,9 @@ fun ScrollPane.scrollTo(actor: Actor, center: Boolean = false) =
 /** Translate a [String] and make a [TextButton] widget from it */
 fun String.toTextButton(style: TextButtonStyle? = null, hideIcons: Boolean = false): TextButton {
     val text = this.tr(hideIcons)
-    return if (style == null) TextButton(text, BaseScreen.skin) else TextButton(text, style)
+    return (if (style == null) TextButton(text, BaseScreen.skin) else TextButton(text, style)).also {
+        com.unciv.l10n.L10nTextMetadata.bind(it.label, this, text)
+    }
 }
 
 /** Convert a texture path into an Image, make an ImageButton with a [tinted][overColor]
@@ -342,7 +344,9 @@ fun addRoundCloseButton(
 }
 
 /** Translate a [String] and make a [Label] widget from it */
-fun String.toLabel() = Label(this.tr(), BaseScreen.skin)
+fun String.toLabel() = Label(this.tr(), BaseScreen.skin).also {
+    com.unciv.l10n.L10nTextMetadata.bind(it, this, it.text.toString())
+}
 /** Make a [Label] widget containing this [Int] as text */
 fun Int.toLabel() = this.tr().toLabel()
 
@@ -361,6 +365,7 @@ fun String.toLabel(fontColor: Color = Color.WHITE,
     }
     val translatedText = this.tr(hideIcons) 
     return Label(translatedText, labelStyle).apply {
+        com.unciv.l10n.L10nTextMetadata.bind(this, this@toLabel, translatedText)
         setFontScale(fontSize / Fonts.ORIGINAL_FONT_SIZE)
         setAlignment(alignment)
     }
@@ -372,6 +377,7 @@ fun String.toLabel(fontColor: Color = Color.WHITE,
  */
 fun String.toCheckBox(startsOutChecked: Boolean = false, changeAction: ((Boolean)->Unit)? = null)
     = CheckBox(this.tr(), BaseScreen.skin).apply {
+        com.unciv.l10n.L10nTextMetadata.bind(label, this@toCheckBox, label.text.toString())
         isChecked = startsOutChecked
         if (changeAction != null) onChange {
             changeAction(isChecked)
