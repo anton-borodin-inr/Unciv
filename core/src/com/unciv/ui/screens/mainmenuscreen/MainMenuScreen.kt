@@ -76,6 +76,9 @@ class MainMenuScreen: BaseScreen(), RecreateOnResize {
 
     private var backgroundMapGenerationJob: Job? = null
     private var backgroundMapExists = false
+    private var l10nDisposed = false
+    internal var l10nBackgroundPending = false
+        private set
 
     companion object {
         const val mapFadeTime = 1.3f
@@ -259,6 +262,7 @@ class MainMenuScreen: BaseScreen(), RecreateOnResize {
     }
 
     private fun startBackgroundMapGeneration() {
+        l10nBackgroundPending = game.l10nHook?.active == true
         stopBackgroundMapGeneration()  // shouldn't be necessary as resize re-instantiates this class
         backgroundMapGenerationJob = Concurrency.run("ShowMapBackground") {
             // MapSize.Small has easily enough tiles to fill the entire background - unless the user sized their window to some extreme aspect ratio
@@ -270,15 +274,22 @@ class MainMenuScreen: BaseScreen(), RecreateOnResize {
 
             val newMap = MapGenerator(backgroundMapRuleset, this)
                 .generateMap(MapParameters().apply {
+                    if (game.l10nHook?.active == true) seed = 40L // Zero means wall-clock seed.
                     shape = MapShape.rectangular
                     mapSize = backgroundMapSize
                     type = MapType.pangaea
                     temperatureintensity = .7f
                     waterThreshold = -0.1f // mainly land, gets about 30% water
-                    modifyForEasterEgg()
+                    if (game.l10nHook?.active == true) {
+                        temperatureShift = 0f
+                        rareFeaturesRichness = .15f
+                    } else modifyForEasterEgg()
                 })
 
             launchOnGLThread { // for GL context
+                // A cancelled job may already have queued this independent GL callback.
+                // A retired menu must not reset fonts/resources belonging to the next request.
+                if (l10nDisposed) return@launchOnGLThread
                 ImageGetter.setNewRuleset(backgroundMapRuleset, ignoreIfModsAreEqual = true)
                 val mapHolder = EditorMapHolder(
                     this@MainMenuScreen,
@@ -287,6 +298,12 @@ class MainMenuScreen: BaseScreen(), RecreateOnResize {
                 mapHolder.color = mapHolder.color.cpy()
                 mapHolder.color.a = 0f
                 backgroundStack.add(mapHolder)
+                if (game.l10nHook?.active == true) {
+                    mapHolder.name = "l10n-pane:menu-map"
+                    mapHolder.color.a = 1f
+                    l10nBackgroundPending = false
+                    return@launchOnGLThread
+                }
 
                 if (backgroundMapExists) {
                     mapHolder.addAction(Actions.sequence(
@@ -301,7 +318,7 @@ class MainMenuScreen: BaseScreen(), RecreateOnResize {
         }.apply {
             invokeOnCompletion {
                 backgroundMapGenerationJob = null
-                backgroundStack.addAction(Actions.sequence(
+                if (game.l10nHook?.active != true) backgroundStack.addAction(Actions.sequence(
                     Actions.delay(mapReplaceDelay),
                     Actions.run { startBackgroundMapGeneration() }
                 ))
@@ -393,6 +410,14 @@ class MainMenuScreen: BaseScreen(), RecreateOnResize {
         ImageGetter.setNewRuleset(ruleset)
         setSkin()
         openCivilopedia(ruleset, link = link)
+    }
+
+    override fun dispose() {
+        if (game.l10nHook?.active == true) {
+            l10nDisposed = true
+            stopBackgroundMapGeneration()
+        }
+        super.dispose()
     }
 
     override fun recreate(): BaseScreen {

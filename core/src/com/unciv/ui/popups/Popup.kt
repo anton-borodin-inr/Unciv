@@ -1,5 +1,7 @@
 package com.unciv.ui.popups
 
+import com.unciv.UncivGame
+
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.math.Rectangle
 import com.badlogic.gdx.scenes.scene2d.Actor
@@ -198,6 +200,8 @@ open class Popup(
      * closed. Use [force] = true if you want to open this popup above the other one anyway.
      */
     fun open(force: Boolean = false) {
+        val capture = UncivGame.Current.l10nHook
+        if (capture?.active == true && !capture.permits(this)) return
         stageToShowOn.addActor(this)
         recalculateInnerTableMaxHeight()
         innerTable.pack()

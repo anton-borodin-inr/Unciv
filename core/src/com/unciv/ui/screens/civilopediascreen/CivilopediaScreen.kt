@@ -247,7 +247,7 @@ class CivilopediaScreen(
         for ((categoryKey, entries) in categoryToEntries) {
             if (entries.isEmpty()) continue
             val icon = if (categoryKey.headerIcon.isNotEmpty()) ImageGetter.getImage(categoryKey.headerIcon) else null
-            val button = IconTextButton(categoryKey.label, icon)
+            val button = IconTextButton(categoryKey.label, icon).apply { name = "l10n-anchor:category:${categoryKey.name}" }
             button.onActivation(binding = categoryKey.binding) { selectCategory(categoryKey) }
             val cell = buttonTable.add(button)
             categoryToButtons[categoryKey] = CategoryButtonInfo(button, currentX, cell.prefWidth)
@@ -255,7 +255,7 @@ class CivilopediaScreen(
         }
 
         buttonTable.pack()
-        buttonTableScroll = ScrollPane(buttonTable)
+        buttonTableScroll = ScrollPane(buttonTable).apply { name = "l10n-pane:categories" }
         buttonTableScroll.setScrollingDisabled(x = false, y = true)
 
         val searchButton = "OtherIcons/Search".toImageButton(imageSize - 16f, imageSize, skinStrings.skinConfig.baseColor, Color.GOLD)
@@ -278,12 +278,12 @@ class CivilopediaScreen(
 
         stage.addActor(splitPane)
 
-        entrySelectScroll = ScrollPane(entrySelectTable)
+        entrySelectScroll = ScrollPane(entrySelectTable).apply { name = "l10n-pane:entries" }
         entrySelectTable.top()
         entrySelectScroll.setOverscroll(false, false)
         val descriptionTable = Table()
         descriptionTable.add(flavourTable).padTop(7f).padBottom(5f).row()  // 2f of that 7f is used up by Portrait painting e.g. a Nation's outer border *outside its bounds*
-        val entrySplitPane = SplitPane(entrySelectScroll, ScrollPane(descriptionTable), false, skin)
+        val entrySplitPane = SplitPane(entrySelectScroll, ScrollPane(descriptionTable).apply { name = "l10n-pane:article" }, false, skin)
         entrySplitPane.splitAmount = 0.3f
         entryTable.addActor(entrySplitPane)
         entrySplitPane.setFillParent(true)
@@ -333,6 +333,10 @@ class CivilopediaScreen(
             else -> (index + entryIndex.size + direction) % entryIndex.size
         }
         selectEntry(entryIndex.keys.drop(newIndex).first())
+    }
+
+    internal fun l10nVerifyEntry(name: String) {
+        require(name in entryIndex && currentEntry == name) { "unknown_civilopedia_entry" }
     }
 
     override fun recreate(): BaseScreen = CivilopediaScreen(ruleset, currentCategory, currentEntry)

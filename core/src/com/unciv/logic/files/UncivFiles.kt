@@ -338,6 +338,7 @@ class UncivFiles(
     }
 
     fun setGeneralSettings(gameSettings: GameSettings) {
+        if (UncivGame.isCurrentInitialized() && UncivGame.Current.l10nHook?.active == true) return
         getGeneralSettingsFile().writeString(json().toJson(gameSettings), false, Charsets.UTF_8.name())
     }
 
@@ -506,6 +507,7 @@ class Autosaves(val files: UncivFiles) {
      * Auto-saves a snapshot of the [gameInfo] in a new thread.
      */
     fun requestAutoSave(gameInfo: GameInfo, nextTurn: Boolean = false): Job {
+        if (UncivGame.isCurrentInitialized() && UncivGame.Current.l10nHook?.active == true) return Job().apply { complete() }
         // The save takes a long time (up to a few seconds on large games!) and we can do it while the player continues his game.
         // On the other hand if we alter the game data while it's being serialized we could get a concurrent modification exception.
         // So what we do is we clone all the game data and serialize the clone.
@@ -516,6 +518,7 @@ class Autosaves(val files: UncivFiles) {
      * In a new thread, auto-saves the [gameInfo] directly - only use this with [GameInfo] objects that are guaranteed not to be changed while the autosave is in progress!
      */
     fun requestAutoSaveUnCloned(gameInfo: GameInfo, nextTurn: Boolean = false): Job {
+        if (UncivGame.isCurrentInitialized() && UncivGame.Current.l10nHook?.active == true) return Job().apply { complete() }
         val job = Concurrency.run("autoSaveUnCloned") {
             autoSave(gameInfo, nextTurn)
         }

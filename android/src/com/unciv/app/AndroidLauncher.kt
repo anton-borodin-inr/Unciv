@@ -62,6 +62,7 @@ open class AndroidLauncher : AndroidApplication() {
         }
 
         game = AndroidGame(this)
+        val captureIntent = game!!.setL10nIntent(intent)
         initialize(game, config)
 
         // Setup display cutout AFTER libGDX initialize() — libGDX window setup resets layoutInDisplayCutoutMode
@@ -73,9 +74,9 @@ open class AndroidLauncher : AndroidApplication() {
 
         // can be triggered via `adb shell am start -a android.intent.action.VIEW -d https://unciv.app/g/G-ef0f5e5a-f1db-4a54-9d94-92ca986afe8a-9 com.unciv.app`
         // or whatever your game id is
-        game!!.setDeepLinkedGame(intent)
+        if (!captureIntent) game!!.setDeepLinkedGame(intent)
         game!!.addScreenObscuredListener()
-        processPossibleFriendDeepLink(intent)
+        if (!captureIntent) processPossibleFriendDeepLink(intent)
     }
 
     private fun insetsListener(view: View, insets: WindowInsetsCompat): WindowInsetsCompat {
@@ -162,6 +163,7 @@ open class AndroidLauncher : AndroidApplication() {
         super.onNewIntent(intent)
         if (intent == null)
             return
+        if (game?.setL10nIntent(intent) == true) return
         game?.setDeepLinkedGame(intent)
         processPossibleFriendDeepLink(intent)
     }

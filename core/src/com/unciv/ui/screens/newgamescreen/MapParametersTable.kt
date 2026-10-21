@@ -68,6 +68,8 @@ class MapParametersTable(
     private var exampleMapJob: Job? = null
     @Volatile
     private var exampleMapGeneration = 0
+    internal var l10nPreviewPending = false
+        private set
 
     // Keep references (in the key) and settings value getters (in the value) of the 'advanced' sliders
     // in a HashMap for reuse later - in the reset to defaults button. Better here as field than as closure.
@@ -151,11 +153,12 @@ class MapParametersTable(
     internal fun generateExampleMap() {
         cancelBackgroundJobs()
         val generation = ++exampleMapGeneration
+        l10nPreviewPending = true
         val ruleset = if (previousScreen is NewGameScreen) previousScreen.ruleset.clone() else RulesetCache.getVanillaRuleset()
         val mapParametersForExample =
             if (forMapEditor) mapParameters
             else mapParameters.clone().apply {
-                seed = 0
+                seed = if (UncivGame.Current.l10nHook?.active == true) 40 else 0
                 mirroring = MirroringType.none
             }
         exampleMapJob = Concurrency.run("Generate example map") {
@@ -173,6 +176,7 @@ class MapParametersTable(
                 }
                 mapTypeExample.add(mapPreview)
                 pack()
+                l10nPreviewPending = false
             }
         }.apply {
             invokeOnCompletion {
@@ -183,6 +187,7 @@ class MapParametersTable(
     }
 
     internal fun cancelBackgroundJobs() {
+        l10nPreviewPending = false
         exampleMapGeneration++
         exampleMapJob?.cancel()
         exampleMapJob = null

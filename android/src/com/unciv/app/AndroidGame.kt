@@ -24,6 +24,33 @@ class AndroidGame(private val activity: Activity) : UncivGame() {
 
     private var lastOrientation = activity.resources.configuration.orientation
 
+    /** Parse extras on both cold start and onNewIntent. Release APKs ignore this debug protocol. */
+    fun setL10nIntent(intent: Intent): Boolean {
+        val present = listOf("l10n_screen", "l10n_request", "l10n_state_b64").any { intent.hasExtra(it) }
+        if (activity.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0) return false
+        if (!present) {
+            if (l10nHook != null) Concurrency.runOnGLThread { l10nHook?.requestLeave() }
+            return false
+        }
+        val screen = intent.getStringExtra("l10n_screen") ?: "missing"
+        val token = intent.getStringExtra("l10n_request") ?: "missing"
+        val decoded = try {
+            require(intent.getStringExtra("l10n_request") != null)
+            val encoded = intent.getStringExtra("l10n_state_b64") ?: error("missing")
+            require(encoded.length <= 43692 && encoded.matches(Regex("[A-Za-z0-9+/]*={0,2}")))
+            val bytes = android.util.Base64.decode(encoded, android.util.Base64.DEFAULT)
+            require(android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP) == encoded)
+            Charsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .decode(java.nio.ByteBuffer.wrap(bytes)).toString()
+        } catch (_: Exception) { null }
+        val submit = {
+            val hook = l10nHook ?: com.unciv.l10n.L10nScreenHook(this).also { l10nHook = it }
+            hook.enqueue(screen, token, decoded)
+        }
+        if (isInitialized) Concurrency.runOnGLThread { submit() } else submit()
+        return true
+    }
+
     fun addScreenObscuredListener() {
         val contentView = (Gdx.graphics as AndroidGraphics).view
         contentView.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {

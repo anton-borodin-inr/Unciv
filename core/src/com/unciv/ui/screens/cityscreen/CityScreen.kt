@@ -61,6 +61,7 @@ class CityScreen(
         const val wltkIconSize = 40f
     }
 
+    private var l10nPendingUpdates = 0
     private val viewingCiv: CivView = cityView.gameView.civView
 
     internal val isSpying = cityView.isEspionageEnabled() && !cityView.isOwnedByViewer() && !viewingCiv.isSpectator()
@@ -180,12 +181,16 @@ class CityScreen(
     override fun getCivilopediaRuleset() = cityView.getRuleset()
 
     /** Async */
+    internal val l10nHasPendingWork get() = l10nPendingUpdates > 0 || constructionsTable.l10nPending
+
     internal fun updateAsync() {
+        l10nPendingUpdates++
         Concurrency.run {
             // Recalculate Stats
             cityView.updateCityStats()
             Concurrency.runOnGLThread {
                 // This screen may have been replaced while we were computing stats - #15642
+                l10nPendingUpdates--
                 if (game.screen !== this@CityScreen) return@runOnGLThread
                 updateSync()
             }

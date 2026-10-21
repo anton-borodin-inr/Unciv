@@ -55,6 +55,9 @@ import kotlin.reflect.KClass
  */
 open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpecific {
 
+    internal val l10nInitialized get() = isInitialized
+    var l10nHook: com.unciv.l10n.L10nScreenHook? = null
+
     var deepLinkedMultiplayerGame: String? = null
     override var customDataDirectory: String? = null
 
@@ -175,6 +178,7 @@ open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpeci
                 ImageGetter.ruleset = vanillaRuleset // so that we can enter the map editor without having to load a game first
 
                 when {
+                    l10nHook?.active == true -> setAsRootScreen(object : BaseScreen() {})
                     settings.isFreshlyCreated -> setAsRootScreen(LanguagePickerScreen())
                     deepLinkedMultiplayerGame == null -> setAsRootScreen(MainMenuScreen())
                     else -> tryLoadDeepLinkedGame()
@@ -439,7 +443,24 @@ open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpeci
         screen.resize(width, height)
     }
 
-    override fun render() = wrappedCrashHandlingRender()
+    override fun render() {
+        if (l10nHook?.render() == true) return
+        wrappedCrashHandlingRender()
+    }
+
+    /** Synchronous stack operations reserved for the Android debug capture hook. */
+    internal fun l10nReset(root: BaseScreen) {
+        check(l10nHook != null)
+        worldScreen = null
+        gameInfo = null
+        setAsRootScreen(root)
+    }
+
+    internal fun l10nPushScreen(screen: BaseScreen) {
+        check(l10nHook?.active == true)
+        screenStack.addLast(screen)
+        setScreen(screen)
+    }
 
     override fun dispose() {
         Gdx.input.inputProcessor = null // don't allow ANRs when shutting down, that's silly

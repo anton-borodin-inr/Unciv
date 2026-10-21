@@ -51,8 +51,10 @@ object Fonts {
     fun resetFont() {
         val settings = GUI.getSettings()
         fontImplementation.setFontFamily(settings.fontFamilyData, settings.getFontSize())
+        val previous = if (::font.isInitialized) font else null
         font = fontImplementation.getBitmapFont()
         font.data.markupEnabled = true
+        if (previous != null) UncivGame.Current.l10nHook?.retireFont(previous)
     }
 
     /** Creates an RGBA font pixmap from row-major ARGB pixels, converting [argb] in place.

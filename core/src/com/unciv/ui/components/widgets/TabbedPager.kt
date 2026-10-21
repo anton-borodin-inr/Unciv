@@ -92,13 +92,13 @@ open class TabbedPager(
         private set
 
     private val header = Table(BaseScreen.skin)
-    val headerScroll = LinkedScrollPane(horizontalOnly = true, header)
+    val headerScroll = LinkedScrollPane(horizontalOnly = true, header).apply { name = "l10n-pane:tabs-header" }
     protected var headerHeight = 0f
     private val headerDecorationRightCell: Cell<Actor?>
 
-    private val fixedContentScroll = LinkedScrollPane(horizontalOnly = true)
+    private val fixedContentScroll = LinkedScrollPane(horizontalOnly = true).apply { name = "l10n-pane:tabs-fixed" }
     private val fixedContentScrollCell: Cell<ScrollPane>
-    private val contentScroll = LinkedScrollPane(horizontalOnly = false, linkTo = fixedContentScroll)
+    private val contentScroll = LinkedScrollPane(horizontalOnly = false, linkTo = fixedContentScroll).apply { name = "l10n-pane:tabs-content" }
     private var savedScrollListener: EventListener? = null
 
     private val deferredSecretPages = ArrayDeque<PageState>(0)

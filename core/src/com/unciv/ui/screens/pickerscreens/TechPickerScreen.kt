@@ -123,6 +123,11 @@ class TechPickerScreen(
         Gdx.input.inputProcessor = stage // Return input 
     }
 
+    internal fun l10nSelect(name: String) {
+        val tech = ruleset.technologies[name] ?: throw IllegalArgumentException("unknown_technology")
+        selectTechnology(tech, queue = false, center = false)
+    }
+
     override fun getCivilopediaRuleset() = ruleset
 
 
@@ -213,6 +218,7 @@ class TechPickerScreen(
                 } else {
                     val techButton = TechButton(tech.name, civTech, false, techIconsIndex)
                     table.add(techButton)
+                    techButton.name = "l10n-anchor:technology:${tech.name}"
                     techNameToButton[tech.name] = techButton
                     techButton.onClick { selectTechnology(tech, queue = false, center = false) }
                     techButton.onRightClick { selectTechnology(tech, queue = true, center = false) }

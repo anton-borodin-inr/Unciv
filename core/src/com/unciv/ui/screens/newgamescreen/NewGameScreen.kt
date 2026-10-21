@@ -60,6 +60,7 @@ class NewGameScreen(
     internal val playerPickerTable: PlayerPickerTable
     private val mapOptionsTable: MapOptionsTable
     private var mapOptionsTableInitialized = false
+    internal val l10nHasPendingWork get() = mapOptionsTableInitialized && mapOptionsTable.l10nHasPendingWork
 
     init {
         val isPortrait = isNarrowerThan4to3()
@@ -470,6 +471,12 @@ class NewGameScreen(
         playerPickerTable.update()
         newGameOptionsTable.changeGameParameters(gameSetupInfo.gameParameters)
         newGameOptionsTable.update()
+    }
+
+    override fun dispose() {
+        if (game.l10nHook?.active == true && mapOptionsTableInitialized)
+            mapOptionsTable.cancelBackgroundJobs()
+        super.dispose()
     }
 
     override fun recreate(): BaseScreen = NewGameScreen(gameSetupInfo)
