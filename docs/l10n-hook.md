@@ -172,7 +172,8 @@ separate confirmation and backups documented in the checker repository.
 
 ## Additive protocol version 2
 
-Build `1271047` adds optional string extra `l10n_protocol=2`. Absence selects
+Protocol v2 was introduced in build `1271047`; build `1271048` fixes its Android
+component-metadata crash described below. Use optional string extra `l10n_protocol=2`. Absence selects
 protocol v1. State `schema_version` remains **1** for both protocols; unsupported
 protocol values fail with `unsupported_protocol`. V1 keeps its PANES, READY and
 ERROR formats and creates no dump files. All four robustness fixes apply to v1
@@ -397,3 +398,50 @@ decoded pixels against repeats and build 1271045; byte-identical repeated dumps;
 forced failure latency, supersession, frozen READY framebuffer, and ordinary cold/
 warm launch/input checks. Record every discrepancy. Source inspection or host
 tests do not establish these device results. Human confirmation is separate.
+
+
+## Android component-metadata fix — build 1271048
+
+Device attempt 1 on 2026-10-22 failed on build 1271047 with Android ICU
+`PatternSyntaxException` in `L10nTextMetadata.bind` for `\{([^{}]+)}`. The host JVM
+accepted the unescaped closing literal brace. The metadata path is also reached
+while constructing CrashScreen/BaseScreen, so the failure could recur during
+crash handling. There were zero successful device PNG/dump pairs; build 1271047
+must not be treated as device-accepted on the strength of its earlier host checks.
+
+Build 1271048 removes regex from component extraction entirely. The literal scanner
+retains the existing semantics: a known complete source key takes precedence;
+otherwise nonempty innermost `{...}` spans are looked up as forward-known source
+components, in order, with repeats preserved. Empty, unmatched and unknown spans
+supply no invented key. Unicode, newlines, punctuation and existing placeholder
+normalization are preserved. Translated widget input is never reverse-matched.
+
+The newly introduced regex sites from the initial v2 commit were audited:
+
+| Site | Result |
+|---|---|
+| metadata component extraction | dynamic regex removed; literal brace scanner |
+| dump publisher request-token validation | `[A-Za-z0-9._-]{1,64}` has only ASCII ranges, an end-position literal hyphen and a valid bounded quantifier; no bare literal brace |
+
+The retained request parser token pattern, event-sanitizer character class and
+Android padded-base64 pattern were also checked for the same issue. They contain
+no unescaped literal closing brace; the braces in their token/base64 bounds are
+intentional quantifier pairs. Existing translation parsing patterns and protocol
+validation semantics were not changed.
+
+`L10nTextMetadataTest` now exercises the actual bind path with an active queued v2
+hook, including blank/unbraced input (the crash-screen construction case), ordered
+repeated known/unknown components, empty/unmatched/nested braces, Unicode/newlines,
+regex punctuation in literal keys, whole-key precedence, placeholder normalization,
+stale input and v1/ordinary/uninitialized guards. A Mockito construction guard
+initializes existing static translation patterns first, then rejects any dynamic
+Regex construction by metadata. This test was verified red against the old code
+and green after the scanner fix. It prevents reintroducing this runtime dependency;
+it does not claim to execute Android ICU in the host JVM.
+
+The fresh host samples are generated under `build/issue47-fix-evidence/` with header
+build_version_code 1271048. The retained 1271047 APK, samples and original host
+verification remain historical evidence. The new APK/commit/hashes require a revised
+exact-operation plan and Anton's approval before replacement installation. This fix
+session runs host tests/build/lint only; Android crash recovery, the 40-pair capture
+and all remaining device acceptance still require their separate approved execution.

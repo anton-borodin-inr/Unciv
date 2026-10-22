@@ -38,9 +38,29 @@ object L10nTextMetadata {
         val translations = UncivGame.Current.translations
         fun known(text: String) = translations[text.getPlaceholderText()]?.entry
         val key = known(source)
-        val components = if (key == null) Regex("\\{([^{}]+)}").findAll(source)
-            .mapNotNull { known(it.groupValues[1]) }.toList() else emptyList()
+        val components = if (key == null) componentKeys(source, ::known) else emptyList()
         sources[actor] = Source(translated, key, components)
+    }
+
+    /** Innermost nonempty literal brace spans, in order, including repeated occurrences.
+     * Avoid regex compilation here: Android ICU rejects a bare closing literal brace
+     * that the host JVM accepted. Opening another brace starts a new inner component;
+     * an unmatched closing brace or unfinished component supplies no provenance.
+     */
+    private fun componentKeys(source: String, known: (String) -> String?): List<String> {
+        val keys = ArrayList<String>()
+        var start = -1
+        source.forEachIndexed { index, char ->
+            when (char) {
+                '{' -> start = index + 1
+                '}' -> {
+                    if (start >= 0 && index > start)
+                        known(source.substring(start, index))?.let { keys.add(it) }
+                    start = -1
+                }
+            }
+        }
+        return keys
     }
 
     fun get(actor: Actor, input: String?): Source? = sources[actor]?.takeIf { it.input == input }

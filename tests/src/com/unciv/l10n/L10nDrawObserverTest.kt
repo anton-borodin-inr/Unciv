@@ -250,8 +250,8 @@ class L10nDrawObserverTest {
         val frame = draw()
         val state = """{"schema_version":1,"save":"host-synthetic","selection":{"technology":"Mining"},"tab":null,"expanded_sections":[],"scroll":{},"scroll_to":{},"camera":null,"new_game":null}"""
         val request = L10nRequest.parse("tech-picker", "host-synthetic", state, "2")
-        val bytes = frame.dump(1271047, request, "German")
-        val path = java.nio.file.Paths.get("../../build/issue47-evidence/host-draw-sample.texts.json")
+        val bytes = frame.dump(1271048, request, "German")
+        val path = java.nio.file.Paths.get("../../build/issue47-fix-evidence/host-draw-sample.texts.json")
         java.nio.file.Files.createDirectories(path.parent)
         java.nio.file.Files.write(path, bytes)
         assertFalse(bytes.toString(Charsets.UTF_8).contains("request"))

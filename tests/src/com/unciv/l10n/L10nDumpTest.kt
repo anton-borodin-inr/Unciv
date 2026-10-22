@@ -95,7 +95,7 @@ class L10nDumpTest {
     }
 
     @Test fun atomicPublisherRefusesBothFinalAndTemporaryCollisions() {
-        val evidence = Paths.get("../../build/issue47-evidence")
+        val evidence = Paths.get("../../build/issue47-fix-evidence")
         Files.createDirectories(evidence)
         val directory = Files.createTempDirectory(evidence, "publisher-").toFile()
         val publisher = L10nDumpPublisher(directory)
@@ -117,13 +117,13 @@ class L10nDumpTest {
         val first = L10nRequest.parse("tech-picker", "first", json, "2")
         val second = L10nRequest.parse("tech-picker", "second", json, "2")
         val frame = L10nDrawObserver.Frame(listOf(2400, 1080), screen, listOf(element()))
-        val bytes = frame.dump(1271047, first, "German")
-        assertArrayEquals(bytes, frame.dump(1271047, second, "German"))
+        val bytes = frame.dump(1271048, first, "German")
+        assertArrayEquals(bytes, frame.dump(1271048, second, "German"))
         assertEquals(l10nSha256(json.toByteArray(Charsets.UTF_8)), first.stateSha256)
         assertNotEquals(first.stateSha256, L10nRequest.parse("tech-picker", "space", "$json ", "2").stateSha256)
         assertEquals(1, L10nRequest.parse("tech-picker", "old", json).protocolVersion)
         assertThrows(IllegalArgumentException::class.java) { L10nRequest.parse("tech-picker", "bad", json, "3") }
-        Files.createDirectories(Paths.get("../../build/issue47-evidence"))
-        Files.write(Paths.get("../../build/issue47-evidence/sample.texts.json"), bytes)
+        Files.createDirectories(Paths.get("../../build/issue47-fix-evidence"))
+        Files.write(Paths.get("../../build/issue47-fix-evidence/sample.texts.json"), bytes)
     }
 }
