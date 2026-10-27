@@ -22,7 +22,7 @@ interface FontImplementation {
 
     fun getBitmapFont(): BitmapFont {
         val fontData = NativeBitmapFontData(this)
-        val font = BitmapFont(fontData, fontData.regions, false)
+        val font = com.unciv.l10n.L10nBitmapFont(fontData, fontData.regions)
         font.setOwnsTexture(true)
         return font
     }

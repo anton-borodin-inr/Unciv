@@ -4,6 +4,7 @@ import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.Pixmap
 import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.graphics.g2d.BitmapFont
+import com.badlogic.gdx.graphics.g2d.GlyphLayout.GlyphRun
 import com.badlogic.gdx.graphics.g2d.PixmapPacker
 import com.badlogic.gdx.graphics.g2d.TextureRegion
 import com.badlogic.gdx.utils.Array
@@ -15,7 +16,13 @@ import kotlin.math.roundToInt
 // This class is loosely based on libgdx's FreeTypeBitmapFontData
 class NativeBitmapFontData(
     private val fontImplementation: FontImplementation
-) : BitmapFont.BitmapFontData(), Disposable {
+) : BitmapFont.BitmapFontData(), Disposable, com.unciv.l10n.L10nTracedFontData {
+
+    override val l10nLayoutTrace = com.unciv.l10n.L10nGlyphLayoutTrace()
+
+    override fun getGlyphs(run: GlyphRun, str: CharSequence, start: Int, end: Int, lastGlyph: BitmapFont.Glyph?) {
+        l10nLayoutTrace.glyphs(run) { super.getGlyphs(run, str, start, end, lastGlyph) }
+    }
 
     val regions: Array<TextureRegion>
 

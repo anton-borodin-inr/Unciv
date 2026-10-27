@@ -10,6 +10,8 @@ import com.badlogic.gdx.scenes.scene2d.ui.Table
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
 import com.badlogic.gdx.utils.Align
 import com.unciv.Constants
+import com.unciv.l10n.L10nPendingTask
+import com.unciv.utils.withGLContext
 import com.unciv.models.UncivSound
 import com.unciv.models.ruleset.Building
 import com.unciv.models.ruleset.IConstruction
@@ -48,7 +50,6 @@ import com.unciv.ui.popups.AnimatedMenuPopup.Companion.adjustContextMenuIndicato
 import com.unciv.ui.popups.CityScreenConstructionMenu
 import com.unciv.ui.screens.basescreen.BaseScreen
 import com.unciv.utils.Concurrency
-import com.unciv.utils.launchOnGLThread
 import kotlin.math.max
 import kotlin.math.min
 import com.unciv.ui.components.widgets.AutoScrollPane as ScrollPane
@@ -343,73 +344,85 @@ class CityConstructionsTable(private val cityScreen: CityScreen) {
         }
 
         l10nPendingCount++
+        val hook = cityScreen.game.l10nHook
+        val owner = hook?.workTicket()
+        val completion = L10nPendingTask({ l10nPendingCount-- }) { error ->
+            if (hook == null) throw error
+            hook.constructionFailure(owner, error)
+        }
         Concurrency.run("Construction info gathering - ${cityView.name}") {
             // Since this can be a heavy operation and leads to many ANRs on older phones we put the metadata-gathering in another thread.
-            val constructionButtonDTOList = getConstructionButtonDTOs()
-            launchOnGLThread {
-                val units = ArrayList<Table>()
-                val buildableWonders = ArrayList<Table>()
-                val buildableNationalWonders = ArrayList<Table>()
-                val buildableBuildings = ArrayList<Table>()
-                val specialConstructions = ArrayList<Table>()
-                val blacklisted = ArrayList<Table>()
-                val disabledAutoAssignConstructions: Set<String> = cityView.getDisabledConstructions()
+            try {
+                hook?.constructionFault(owner)
+                val constructionButtonDTOList = getConstructionButtonDTOs()
+                withGLContext { completion.complete {
+                    if (hook != null && !hook.isCurrent(owner)) return@complete
+                    val units = ArrayList<Table>()
+                    val buildableWonders = ArrayList<Table>()
+                    val buildableNationalWonders = ArrayList<Table>()
+                    val buildableBuildings = ArrayList<Table>()
+                    val specialConstructions = ArrayList<Table>()
+                    val blacklisted = ArrayList<Table>()
+                    val disabledAutoAssignConstructions: Set<String> = cityView.getDisabledConstructions()
 
-                var maxButtonWidth = constructionsQueueTable.width
-                for (dto in constructionButtonDTOList) {
+                    var maxButtonWidth = constructionsQueueTable.width
+                    for (dto in constructionButtonDTOList) {
 
-                    /** filter out showing buildings that have RequiresBuildingInThisCity
-                     * rejection (eg requiredBuilding entry) which are buildable.
-                     * The rejection for RequiresBuildingInThisCity isn't yielded if
-                     * the prerequisite is in the queue
-                     */
-                    if (dto.construction is Building
-                            && dto.rejectionReason?.type == RejectionReasonType.RequiresBuildingInThisCity
-                            && constructionButtonDTOList.any {
-                                (it.construction is Building) && (it.construction.name == dto.construction.requiredBuilding
-                                        || it.construction.replaces == dto.construction.requiredBuilding
-                                        || it.construction.hasTagUnique(dto.construction.requiredBuilding!!, cityView.getState()))
-                            })
-                        continue
+                        /** filter out showing buildings that have RequiresBuildingInThisCity
+                         * rejection (eg requiredBuilding entry) which are buildable.
+                         * The rejection for RequiresBuildingInThisCity isn't yielded if
+                         * the prerequisite is in the queue
+                         */
+                        if (dto.construction is Building
+                                && dto.rejectionReason?.type == RejectionReasonType.RequiresBuildingInThisCity
+                                && constructionButtonDTOList.any {
+                                    (it.construction is Building) && (it.construction.name == dto.construction.requiredBuilding
+                                            || it.construction.replaces == dto.construction.requiredBuilding
+                                            || it.construction.hasTagUnique(dto.construction.requiredBuilding!!, cityView.getState()))
+                                })
+                            continue
 
-                    val constructionButton = getConstructionButton(dto)
-                    if (dto.construction.name in disabledAutoAssignConstructions)
-                        blacklisted.add(constructionButton)
-                    else when (dto.construction) {
-                        is BaseUnit -> units.add(constructionButton)
-                        is Building -> {
-                            when {
-                                dto.construction.isWonder -> buildableWonders += constructionButton
-                                dto.construction.isNationalWonder -> buildableNationalWonders += constructionButton
-                                else -> buildableBuildings += constructionButton
+                        val constructionButton = getConstructionButton(dto)
+                        if (dto.construction.name in disabledAutoAssignConstructions)
+                            blacklisted.add(constructionButton)
+                        else when (dto.construction) {
+                            is BaseUnit -> units.add(constructionButton)
+                            is Building -> {
+                                when {
+                                    dto.construction.isWonder -> buildableWonders += constructionButton
+                                    dto.construction.isNationalWonder -> buildableNationalWonders += constructionButton
+                                    else -> buildableBuildings += constructionButton
+                                }
                             }
+                            is PerpetualConstruction -> specialConstructions.add(constructionButton)
                         }
-                        is PerpetualConstruction -> specialConstructions.add(constructionButton)
+                        maxButtonWidth = max(maxButtonWidth, constructionButton.packIfNeeded().width)
                     }
-                    maxButtonWidth = max(maxButtonWidth, constructionButton.packIfNeeded().width)
-                }
 
-                availableConstructionsTable.apply {
-                    clear()
-                    defaults().left().bottom()
-                    addCategory("Units", units, maxButtonWidth, KeyboardBinding.BuildUnits)
-                    addCategory("Buildings", buildableBuildings, maxButtonWidth, KeyboardBinding.BuildBuildings)
-                    addCategory("Wonders", buildableWonders, maxButtonWidth, KeyboardBinding.BuildWonders)
-                    addCategory("National Wonders", buildableNationalWonders, maxButtonWidth, KeyboardBinding.BuildNationalWonders)
-                    addCategory("Other", specialConstructions, maxButtonWidth, KeyboardBinding.BuildOther)
-                    addCategory("Disabled", blacklisted, maxButtonWidth, KeyboardBinding.BuildDisabled, startsOutOpened = false)
-                    pack()
-                }
+                    availableConstructionsTable.apply {
+                        clear()
+                        defaults().left().bottom()
+                        addCategory("Units", units, maxButtonWidth, KeyboardBinding.BuildUnits)
+                        addCategory("Buildings", buildableBuildings, maxButtonWidth, KeyboardBinding.BuildBuildings)
+                        addCategory("Wonders", buildableWonders, maxButtonWidth, KeyboardBinding.BuildWonders)
+                        addCategory("National Wonders", buildableNationalWonders, maxButtonWidth, KeyboardBinding.BuildNationalWonders)
+                        addCategory("Other", specialConstructions, maxButtonWidth, KeyboardBinding.BuildOther)
+                        addCategory("Disabled", blacklisted, maxButtonWidth, KeyboardBinding.BuildDisabled, startsOutOpened = false)
+                        pack()
+                    }
 
-                availableConstructionsScrollPane.apply {
-                    setSize(maxButtonWidth, min(availableConstructionsTable.prefHeight, lowerTableScrollCell.maxHeight))
-                    layout()
-                    scrollY = constructionsScrollY
-                    updateVisualScroll()
-                }
-                lowerTable.pack()
-                availableConstructionsTable.adjustContextMenuIndicators()
-                l10nPendingCount--
+                    availableConstructionsScrollPane.apply {
+                        setSize(maxButtonWidth, min(availableConstructionsTable.prefHeight, lowerTableScrollCell.maxHeight))
+                        layout()
+                        scrollY = constructionsScrollY
+                        updateVisualScroll()
+                    }
+                    lowerTable.pack()
+                    availableConstructionsTable.adjustContextMenuIndicators()
+                } }
+            } catch (ex: Exception) {
+                withGLContext { completion.fail(ex) }
+                if (hook == null) throw ex
             }
         }
     }

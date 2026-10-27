@@ -34,7 +34,9 @@ class ColorMarkupLabel private constructor(
         fontSize: Int = Constants.defaultFontSize,
         defaultColor: Color = Color.WHITE,
         hideIcons: Boolean = false
-    ) : this(fontSize, mapMarkup(text, defaultColor, hideIcons))
+    ) : this(fontSize, mapMarkup(text, defaultColor, hideIcons)) {
+        com.unciv.l10n.L10nTextMetadata.bind(this, text, this.text.toString())
+    }
 
     /** A Label automatically applying Gdx markup colors to symbols and rest of text separately -
      *  _**after**_ translating [text].
@@ -49,7 +51,9 @@ class ColorMarkupLabel private constructor(
         textColor: Color,
         symbolColor: Color = Color.WHITE,
         fontSize: Int = Constants.defaultFontSize
-    ) : this (fontSize, prepareText(text, textColor, symbolColor))
+    ) : this (fontSize, prepareText(text, textColor, symbolColor)) {
+        com.unciv.l10n.L10nTextMetadata.bind(this, text, this.text.toString())
+    }
 
     /** Only if wrap was turned on, this is the prefWidth before.
      *  Used for getMaxWidth as better estimate than the default 0. */

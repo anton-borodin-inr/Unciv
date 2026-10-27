@@ -199,7 +199,9 @@ open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpeci
      * Sets the returned `WorldScreen` as the only active screen.
      * @param autoPlay pass in the old WorldScreen AutoPlay to retain the state throughout turns. Otherwise leave it is the default.
      */
-    suspend fun loadGame(newGameInfo: GameInfo, autoPlay: AutoPlay = AutoPlay(settings.autoPlay), callFromLoadScreen: Boolean = false): WorldScreen = withThreadPoolContext toplevel@{
+    suspend fun loadGame(newGameInfo: GameInfo, autoPlay: AutoPlay = AutoPlay(settings.autoPlay), callFromLoadScreen: Boolean = false,
+                         captureIsCurrent: (() -> Boolean)? = null): WorldScreen = withThreadPoolContext toplevel@{
+        check(captureIsCurrent?.invoke() != false) { "superseded" }
         val prevGameInfo = gameInfo
         gameInfo = newGameInfo
 
@@ -210,7 +212,7 @@ open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpeci
             throw UncivShowableException("You are not allowed to spectate!")
         }
 
-        initializeResources(newGameInfo)
+        initializeResources(newGameInfo, captureIsCurrent)
 
         val isLoadingSameGame = worldScreen != null && prevGameInfo != null && prevGameInfo.gameId == newGameInfo.gameId
         val worldScreenRestoreState = if (!callFromLoadScreen && isLoadingSameGame) worldScreen!!.getRestoreState() else null
@@ -220,12 +222,14 @@ open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpeci
         withGLContext {
             // this is not merged with the below GL context block so that our loading screen gets a chance to show - otherwise
             // we do it all in one swoop on the same thread and the application just "freezes" without loading screen for the duration.
+            check(captureIsCurrent?.invoke() != false) { "superseded" }
             loadingScreen = LoadingScreen(getScreen())
             setScreen(loadingScreen)
             Gdx.input.inputProcessor = null // It's just been set by setScreen, so unset it to avoid ANRs while loading
         }
 
         return@toplevel withGLContext {
+            check(captureIsCurrent?.invoke() != false) { "superseded" }
             for (screen in screenStack) screen.dispose()
             screenStack.clear()
 
@@ -250,8 +254,9 @@ open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpeci
     }
 
     /** The new game info may have different mods or rulesets, which may use different resources that need to be loaded. */
-    private suspend fun initializeResources(newGameInfo: GameInfo) {
+    private suspend fun initializeResources(newGameInfo: GameInfo, captureIsCurrent: (() -> Boolean)? = null) {
         withGLContext {
+            check(captureIsCurrent?.invoke() != false) { "superseded" }
             ImageGetter.setNewRuleset(newGameInfo.ruleset, true)
         }
         val fullModList = newGameInfo.gameParameters.getModsAndBaseRuleset()

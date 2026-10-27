@@ -26,7 +26,7 @@ class AndroidGame(private val activity: Activity) : UncivGame() {
 
     /** Parse extras on both cold start and onNewIntent. Release APKs ignore this debug protocol. */
     fun setL10nIntent(intent: Intent): Boolean {
-        val present = listOf("l10n_screen", "l10n_request", "l10n_state_b64").any { intent.hasExtra(it) }
+        val present = listOf("l10n_screen", "l10n_request", "l10n_state_b64", "l10n_protocol", "l10n_fault").any { intent.hasExtra(it) }
         if (activity.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0) return false
         if (!present) {
             if (l10nHook != null) Concurrency.runOnGLThread { l10nHook?.requestLeave() }
@@ -43,9 +43,12 @@ class AndroidGame(private val activity: Activity) : UncivGame() {
             Charsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
                 .decode(java.nio.ByteBuffer.wrap(bytes)).toString()
         } catch (_: Exception) { null }
+        val protocol = intent.getStringExtra("l10n_protocol")
+        val fault = intent.getStringExtra("l10n_fault")
         val submit = {
-            val hook = l10nHook ?: com.unciv.l10n.L10nScreenHook(this).also { l10nHook = it }
-            hook.enqueue(screen, token, decoded)
+            val hook = l10nHook ?: com.unciv.l10n.L10nScreenHook(this,
+                activity.packageManager.getPackageInfo(activity.packageName, 0).versionCode, activity.filesDir).also { l10nHook = it }
+            hook.enqueue(screen, token, decoded, protocol, fault)
         }
         if (isInitialized) Concurrency.runOnGLThread { submit() } else submit()
         return true

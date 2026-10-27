@@ -40,10 +40,16 @@ import com.unciv.utils.Log
 import com.unciv.utils.withGLContext
 
 /** Android debug-only entry point. No settings, saves or gameplay choices are persisted. */
-class L10nScreenHook(private val game: UncivGame) {
+class L10nScreenHook(private val game: UncivGame, private val buildVersionCode: Int,
+                     private val outputDirectory: java.io.File) {
     var active = true
         private set
-    private val queue = ArrayDeque<Triple<String, String, String?>>()
+    private val lifecycle = L10nRequestQueue { owner, reason ->
+        emit("L10N_SCREEN_ERROR ${safe(owner.screen)} request=${safe(owner.token)} reason=$reason")
+    }
+    private val queue get() = lifecycle.pending
+    private val ticket get() = lifecycle.current
+    val observesText get() = active && (request?.protocolVersion == 2 || queue.any { it.protocol == "2" })
     private var loading = false
     private var leavePending = false
     private var request: L10nRequest? = null
@@ -63,18 +69,31 @@ class L10nScreenHook(private val game: UncivGame) {
         retiredFonts.clear()
     }
 
-    fun enqueue(screen: String, token: String, decodedJson: String?) {
+    fun enqueue(screen: String, token: String, decodedJson: String?, protocol: String? = null, fault: String? = null) {
         leavePending = false
-        queue.addLast(Triple(screen, token, decodedJson))
-        Gdx.graphics?.requestRendering()
+        lifecycle.enqueue(L10nTicket(screen, token, decodedJson, protocol, fault))
+        // A load already in flight is drained before the next request starts. Its guarded
+        // callbacks cannot touch the next screen or report a failure on its behalf.
+        Gdx.graphics?.let { it.isContinuousRendering = true; it.requestRendering() }
     }
 
     fun requestLeave() {
         leavePending = true
-        for ((screen, token, _) in queue)
-            emit("L10N_SCREEN_ERROR ${safe(screen)} request=${safe(token)} reason=normal_launch_requested")
-        queue.clear()
+        lifecycle.retireAll("normal_launch_requested")
+        Gdx.graphics.isContinuousRendering = true
         Gdx.graphics.requestRendering()
+    }
+
+    internal fun workTicket() = ticket
+    internal fun isCurrent(owner: L10nTicket?) = active && !leavePending && lifecycle.isCurrent(owner)
+
+    internal fun constructionFailure(owner: L10nTicket?, error: Exception) {
+        if (isCurrent(owner)) fail(owner!!, error.message ?: error.javaClass.simpleName)
+    }
+
+    internal fun constructionFault(owner: L10nTicket?) {
+        if (isCurrent(owner) && owner!!.protocol == "2" && owner.screen == "city-production" &&
+            owner.fault == "construction-background") error("forced_construction_background_failure")
     }
 
     private fun leave() {
@@ -94,12 +113,13 @@ class L10nScreenHook(private val game: UncivGame) {
     fun render(): Boolean {
         if (!active || !game.l10nInitialized) return false
         if (!loading && leavePending) { leave(); return false }
-        if (!loading && queue.isNotEmpty()) start(queue.removeFirst())
-        if (loading) return false
+        if (!loading && queue.isNotEmpty()) start(lifecycle.startNext())
+        if (loading) return true
+        if (ticket?.terminal == true) return true
         val screen = target ?: return false
         val current = request ?: return false
         if (game.screen !== screen) {
-            fail(current.screen, current.token, "screen_replaced")
+            fail(ticket!!, "screen_replaced")
             return true
         }
         try {
@@ -123,7 +143,9 @@ class L10nScreenHook(private val game: UncivGame) {
             Gdx.gl.glClearColor(BaseScreen.clearColor.r, BaseScreen.clearColor.g, BaseScreen.clearColor.b, BaseScreen.clearColor.a)
             Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT)
             // Deliberately draw without act(): map, unit, cursor and transition clocks stay frozen.
-            screen.stage.draw()
+            val observed = if (current.protocolVersion == 2)
+                L10nDrawObserver.collect(screen.stage) { screen.stage.draw() }
+                else { screen.stage.draw(); null }
             val actors = L10nScrollState.actors(screen.stage.root)
             val quiet = !hasPendingWork(screen) && actors.none { it.hasActions() || ((it is com.badlogic.gdx.scenes.scene2d.ui.Widget && it.needsLayout()) || (it is com.badlogic.gdx.scenes.scene2d.ui.WidgetGroup && it.needsLayout())) }
             if (quiet && !terminal) {
@@ -141,36 +163,46 @@ class L10nScreenHook(private val game: UncivGame) {
             if (frames.rendered(quiet, scrollState!!.layoutSignature()) && !terminal) {
                 scrollState!!.verify()
                 Gdx.gl.glFinish()
-                terminal = true
-                emit("L10N_SCREEN_READY ${current.screen} request=${current.token} frames=${frames.quietFrames}")
+                if (observed != null) {
+                    val bytes = observed.dump(buildVersionCode, current, game.settings.language)
+                    val published = L10nDumpPublisher(outputDirectory).publish(current.token, bytes)
+                    emit("L10N_SCREEN_DUMP ${current.screen} request=${current.token} file=${published.path} sha256=${published.sha256}")
+                }
+                ticket!!.finishRendering(Gdx.graphics) {
+                    terminal = true
+                    emit("L10N_SCREEN_READY ${current.screen} request=${current.token} frames=${frames.quietFrames}")
+                }
             }
             if (!terminal) { checkTimeout(); Gdx.graphics.requestRendering() }
         } catch (ex: Exception) {
-            fail(current.screen, current.token, ex.message ?: ex.javaClass.simpleName)
+            fail(ticket!!, ex.message ?: ex.javaClass.simpleName)
         }
         return true
     }
 
-    private fun start(input: Triple<String, String, String?>) {
+    private fun start(input: L10nTicket) {
+        request = null
         loading = true; target = null; scrollState = null; applied = false; terminal = false
         frames.reset(); started = System.nanoTime()
-        // Dispose the complete previous stack before reading fresh settings or a fresh save.
-        game.l10nReset(object : BaseScreen() {})
-        releaseRetiredFonts()
-        game.settings = game.files.getGeneralSettings().apply {
-            showTutorials = false
-            enableEasterEggs = false
-            continuousRendering = false
-            unitMovementButtonAnimation = false
-            unitActionsTableAnimation = false
-            showUnitMovements = false
-        }
-        Gdx.graphics.isContinuousRendering = true // request-driven work is not allowed to starve during setup
+        Gdx.graphics.isContinuousRendering = true
         try {
-            require(input.third != null) { "invalid_base64_or_missing_extra" }
-            request = L10nRequest.parse(input.first, input.second, input.third!!)
+            // Dispose the complete previous stack before reading fresh settings or a fresh save.
+            game.l10nReset(object : BaseScreen() {})
+            releaseRetiredFonts()
+            game.settings = game.files.getGeneralSettings().apply {
+                showTutorials = false
+                enableEasterEggs = false
+                continuousRendering = false
+                unitMovementButtonAnimation = false
+                unitActionsTableAnimation = false
+                showUnitMovements = false
+            }
+            require(input.json != null) { "invalid_base64_or_missing_extra" }
+            request = L10nRequest.parse(input.screen, input.token, input.json, input.protocol)
+            require(input.fault == null || (input.protocol == "2" && input.screen == "city-production" &&
+                input.fault == "construction-background")) { "unsupported_fault" }
         } catch (ex: Exception) {
-            fail(input.first, input.second, ex.message ?: "invalid_request")
+            fail(input, ex.message ?: "invalid_request")
             return
         }
         val current = request!!
@@ -180,25 +212,28 @@ class L10nScreenHook(private val game: UncivGame) {
                     require(game.files.getSave(name).exists()) { "save_not_found" }
                     val saved = game.files.loadGameByName(name)
                     require(!saved.gameParameters.isOnlineMultiplayer) { "multiplayer_save_not_supported" }
-                    // Fonts are incremental atlases: their packing and mipmaps otherwise depend
-                    // on the previously visited screens, even when the saved game is reloaded.
-                    withGLContext { ImageGetter.setNewRuleset(saved.ruleset) }
-                    game.loadGame(saved, callFromLoadScreen = true)
+                    withGLContext {
+                        check(isCurrent(input)) { "superseded" }
+                        ImageGetter.setNewRuleset(saved.ruleset)
+                    }
+                    game.loadGame(saved, callFromLoadScreen = true, captureIsCurrent = { isCurrent(input) })
                 }
                 withGLContext {
-                    if (!active) return@withGLContext
+                    if (!isCurrent(input)) return@withGLContext
                     if (world != null) {
                         world.shouldUpdate = true
                         world.render(0f)
                     }
-                    val screen = build(current, world)
-                    target = screen
-                    loading = false
+                    target = build(current, world)
                     Gdx.input.inputProcessor = null
-                    Gdx.graphics.requestRendering()
                 }
             } catch (ex: Exception) {
-                withGLContext { fail(current.screen, current.token, ex.message ?: ex.javaClass.simpleName) }
+                withGLContext { if (isCurrent(input)) fail(input, ex.message ?: ex.javaClass.simpleName) }
+            } finally {
+                withGLContext {
+                    if (ticket === input) loading = false
+                    if (queue.isNotEmpty() || leavePending || isCurrent(input)) Gdx.graphics.requestRendering()
+                }
             }
         }
     }
@@ -304,11 +339,18 @@ class L10nScreenHook(private val game: UncivGame) {
         require(System.nanoTime() - started < 60_000_000_000L) { "readiness_timeout" }
     }
 
-    private fun fail(screen: String, token: String, reason: String) {
-        loading = false; target = null; terminal = true
-        game.l10nReset(object : BaseScreen() {})
-        Gdx.input.inputProcessor = null
-        emit("L10N_SCREEN_ERROR ${safe(screen)} request=${safe(token)} reason=${safe(reason)}")
+    private fun fail(owner: L10nTicket, reason: String) {
+        if (ticket !== owner || owner.retired) return
+        owner.finishRendering(Gdx.graphics) {
+            loading = false; target = null; terminal = true
+            game.l10nReset(object : BaseScreen() {})
+            Gdx.input.inputProcessor = null
+            // Freeze an explicitly blank error framebuffer, rather than an old successful screen.
+            Gdx.gl.glClearColor(BaseScreen.clearColor.r, BaseScreen.clearColor.g, BaseScreen.clearColor.b, BaseScreen.clearColor.a)
+            Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT)
+            Gdx.gl.glFinish()
+            emit("L10N_SCREEN_ERROR ${safe(owner.screen)} request=${safe(owner.token)} reason=${safe(reason)}")
+        }
     }
 
     /** Capture events are a protocol, independent of the optional general debug-log switch. */

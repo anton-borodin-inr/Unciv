@@ -27,6 +27,7 @@ class WrappableLabel(
     private var optimizedWidth = Float.MAX_VALUE
 
     init {
+        com.unciv.l10n.L10nTextMetadata.bind(this, text, this.text.toString())
         if (fontColor != Color.WHITE || fontSize!=Constants.defaultFontSize) {
             val style = LabelStyle(this.style)
             style.fontColor = fontColor
