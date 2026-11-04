@@ -1,0 +1,17 @@
+// Builder-owned metadata override. The pinned game tree is never edited.
+gradle.beforeProject { project ->
+    project.plugins.withId('com.android.application') {
+        project.extensions.getByName('androidComponents').finalizeDsl({ android ->
+            def value = project.findProperty('l10nBuilderVersionCode')
+            if (value != null) {
+                if (!(value ==~ /18[0-9]{8}/)) {
+                    throw new GradleException('Invalid reserved localization-builder versionCode')
+                }
+                android.defaultConfig.versionCode = Integer.parseInt(value)
+            }
+        } as org.gradle.api.Action)
+        project.tasks.configureEach { task ->
+            if (task.name == 'texturePacker') task.enabled = false
+        }
+    }
+}
