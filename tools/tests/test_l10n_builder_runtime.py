@@ -172,7 +172,10 @@ class RuntimeRegressionTests(unittest.TestCase):
                 return b""
 
             def apk_tools(apk, sdk, env):
-                code = assemblies.get(apk.parents[5], "1271048")
+                code = next(
+                    (v for cwd, v in assemblies.items() if cwd in apk.parents),
+                    "1271048",
+                )
                 return cert, code, b"normalized manifest"
 
             args = argparse.Namespace(
