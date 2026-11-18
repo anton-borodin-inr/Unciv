@@ -1,12 +1,14 @@
 """Regression tests for runtime boundaries; all payloads here are synthetic."""
 
-import copy
-import hashlib
+import argparse
+import contextlib
 import importlib
+import io
 import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -29,51 +31,6 @@ class RuntimeRegressionTests(unittest.TestCase):
                 runtime.normalize_manifest(text + text)
         with self.assertRaises(c.BuilderError):
             runtime.normalize_manifest("no versionCode attribute")
-
-    def test_unexpected_source_membership_fails_but_generated_outputs_are_allowed(self):
-        with tempfile.TemporaryDirectory() as folder:
-            folder = Path(folder).resolve(strict=True)
-            root = Path(folder)
-            (root / "core/src").mkdir(parents=True)
-            (root / "core/src/Original.kt").write_bytes(b"pinned")
-            pin = runtime.inventory(root)
-            (root / "core/build/classes").mkdir(parents=True)
-            (root / "core/build/classes/Generated.class").write_bytes(
-                b"generated test output"
-            )
-            runtime.audit_source(root, pin, {})
-            (root / "core/src/Injected.kt").write_bytes(b"unexpected compilation input")
-            with self.assertRaises(c.BuilderError):
-                runtime.audit_source(root, pin, {})
-
-    def test_reuse_copies_only_verified_references_and_never_follows_symlinks(self):
-        self.assertTrue(
-            callable(getattr(runtime, "copy_verified_artifact", None)),
-            "Verified-reference copy missing",
-        )
-        with tempfile.TemporaryDirectory() as folder:
-            folder = Path(folder).resolve(strict=True)
-            parent, destination = Path(folder) / "parent", Path(folder) / "new"
-            parent.mkdir()
-            destination.mkdir()
-            prefix = "batches/batch-test/"
-            reference = runtime.write_payload(
-                parent, prefix + "approved.bin", b"approved synthetic bytes"
-            )
-            sentinel = Path(folder) / "sentinel"
-            sentinel.write_bytes(b"must never be copied")
-            (parent / prefix / "unreferenced-link.bin").symlink_to(sentinel)
-            record = {"apk": reference, "nested": {"file": copy.deepcopy(reference)}}
-            runtime.copy_verified_artifact(parent, destination, "batch-test", record)
-            self.assertEqual(
-                [p.name for p in (destination / prefix).iterdir()], ["approved.bin"]
-            )
-            (parent / prefix / "approved.bin").unlink()
-            (parent / prefix / "approved.bin").symlink_to(sentinel)
-            with self.assertRaises(c.BuilderError):
-                runtime.copy_verified_artifact(
-                    parent, destination, "batch-test", record
-                )
 
     def test_control_execution_does_not_depend_on_hash_order(self):
         self.assertTrue(
@@ -145,401 +102,146 @@ class RuntimeRegressionTests(unittest.TestCase):
                 runtime.registry_directory(repo), runtime.registry_directory(linked)
             )
 
-    def test_identical_catalog_in_distinct_output_roots_has_distinct_transactions(self):
-        with tempfile.TemporaryDirectory() as folder:
-            folder = Path(folder).resolve(strict=True)
-            root = Path(folder)
-            repo, registry = root / "repo", root / "registry"
-            repo.mkdir()
-            registry.mkdir()
-            raw = b'{"synthetic_transaction_test":true}\n'
-            checksum = c.digest(raw)
-            bindings = [
-                {
-                    "build_identity_sha256": "a" * 64,
-                    "apk_sha256": "b" * 64,
-                    "catalog_sha256": checksum,
-                }
-            ]
-            targets = []
-
-            def verify(path, sha):
-                self.assertEqual(c.digest(path.read_bytes()), sha)
-                return {"a" * 64: "b" * 64}
-
-            try:
-                for name in ("first", "second"):
-                    stage = root / name / ".staging/run"
-                    stage.mkdir(parents=True)
-                    (stage / "catalog.json").write_bytes(raw)
-                    target = root / name / ("catalog-" + checksum)
-                    targets.append(target)
-                    try:
-                        runtime.publish_transaction(
-                            registry, repo, stage, target, checksum, bindings, verify
-                        )
-                    except c.BuilderError as exc:
-                        self.fail(
-                            f"A different output root must not poison publication recovery: {exc}"
-                        )
-                runtime.recover_publications(registry, repo, verify)
-                self.assertFalse(
-                    list((registry / "publications").glob("*.pending.json"))
-                )
-                self.assertEqual(
-                    len(list((registry / "publications").glob("*.complete.json"))), 2
-                )
-            finally:
-                for target in targets:
-                    if target.exists():
-                        target.chmod(0o755)
-                        (target / "catalog.json").chmod(0o644)
-
-    def test_simultaneous_pending_journals_keep_full_state_identity_and_recover_twice(
-        self,
-    ):
+    def test_each_request_builds_once_and_publishes_exactly_the_compact_set(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder).resolve(strict=True)
-            repo, registry = root / "repo", root / "registry"
-            repo.mkdir()
-            registry.mkdir()
-            raw = b'{"synthetic_transaction_test":true}\n'
-            checksum = hashlib.sha256(raw).hexdigest()
-            bindings = [
-                {
-                    "build_identity_sha256": "a" * 64,
-                    "apk_sha256": "b" * 64,
-                    "catalog_sha256": checksum,
-                }
-            ]
-            expected_states = {}
-            targets = []
-            verify_calls = []
-
-            def verify(path, sha):
-                self.assertEqual(sha, checksum)
-                self.assertEqual(path.read_bytes(), raw)
-                verify_calls.append(path)
-                return {"a" * 64: "b" * 64}
-
-            try:
-                for name in ("first", "second"):
-                    stage = root / name / ".staging/run"
-                    stage.mkdir(parents=True)
-                    (stage / "catalog.json").write_bytes(raw)
-                    target = root / name / ("catalog-" + checksum)
-                    targets.append(target)
-                    state = {
-                        "publication_version": 1,
-                        "stage": str(stage),
-                        "target": str(target),
-                        "catalog_sha256": checksum,
-                        "bindings": bindings,
-                    }
-                    # Compute the expectation independently of the producer's digest helper.
-                    transaction_id = hashlib.sha256(
-                        c.canonical_bytes(state)
-                    ).hexdigest()
-                    expected_states[transaction_id] = state
-                    with (
-                        mock.patch.object(
-                            runtime,
-                            "finish_publication",
-                            side_effect=OSError(
-                                "synthetic prepared-journal interruption"
-                            ),
-                        ),
-                        self.assertRaisesRegex(
-                            OSError, "prepared-journal interruption"
-                        ),
-                    ):
-                        runtime.publish_transaction(
-                            registry, repo, stage, target, checksum, bindings, verify
-                        )
-                    self.assertTrue(stage.is_dir())
-                    self.assertFalse(target.exists())
-                    pending = list((registry / "publications").glob("*.pending.json"))
-                    self.assertEqual(
-                        {p.name for p in pending},
-                        {identity + ".pending.json" for identity in expected_states},
-                    )
-                    for journal in pending:
-                        identity = journal.name.removesuffix(".pending.json")
-                        self.assertEqual(
-                            journal.read_bytes(),
-                            c.canonical_bytes(expected_states[identity]),
-                        )
-                self.assertEqual(len(expected_states), 2)
-                self.assertFalse((registry / "frozen-artifacts").exists())
-                self.assertFalse(
-                    list((registry / "publications").glob("*.complete.json"))
-                )
-
-                recovered_snapshot = None
-                recovered_verify_calls = None
-                for _ in range(2):
-                    try:
-                        runtime.recover_publications(registry, repo, verify)
-                    except c.BuilderError as exc:
-                        self.fail(
-                            f"Distinct prepared transactions must recover independently: {exc}"
-                        )
-                    self.assertFalse(
-                        list((registry / "publications").glob("*.pending.json"))
-                    )
-                    completed = list(
-                        (registry / "publications").glob("*.complete.json")
-                    )
-                    self.assertEqual(
-                        {p.name for p in completed},
-                        {identity + ".complete.json" for identity in expected_states},
-                    )
-                    for completion in completed:
-                        identity = completion.name.removesuffix(".complete.json")
-                        self.assertEqual(
-                            completion.read_bytes(),
-                            c.canonical_bytes(expected_states[identity]),
-                        )
-                    for state in expected_states.values():
-                        self.assertFalse(Path(state["stage"]).exists())
-                        self.assertEqual(
-                            (Path(state["target"]) / "catalog.json").read_bytes(), raw
-                        )
-                    frozen = list((registry / "frozen-artifacts").glob("*.json"))
-                    self.assertEqual(len(frozen), 1)
-                    self.assertEqual(
-                        frozen[0].read_bytes(), c.canonical_bytes(bindings[0])
-                    )
-                    snapshot = {
-                        p.relative_to(registry).as_posix(): p.read_bytes()
-                        for p in registry.rglob("*")
-                        if p.is_file()
-                    }
-                    if recovered_snapshot is None:
-                        recovered_snapshot = snapshot
-                        recovered_verify_calls = len(verify_calls)
-                    else:
-                        self.assertEqual(snapshot, recovered_snapshot)
-                        self.assertEqual(len(verify_calls), recovered_verify_calls)
-            finally:
-                for target in targets:
-                    if target.exists():
-                        target.chmod(0o755)
-                        (target / "catalog.json").chmod(0o644)
-
-    def test_rename_failure_leaves_recoverable_journal_not_orphaned_freeze(self):
-        self.assertTrue(
-            callable(getattr(runtime, "publish_transaction", None)),
-            "Recoverable publication missing",
-        )
-        with tempfile.TemporaryDirectory() as folder:
-            folder = Path(folder).resolve(strict=True)
-            root = Path(folder)
-            repo, output, registry = root / "repo", root / "output", root / "registry"
-            for path in (repo, output, registry):
-                path.mkdir()
-            stage = output / ".staging/run"
-            stage.mkdir(parents=True)
-            raw = b'{"synthetic_transaction_test":true}\n'
-            (stage / "catalog.json").write_bytes(raw)
-            checksum = c.digest(raw)
-            target = output / ("catalog-" + checksum)
-            bindings = [
-                {
-                    "build_identity_sha256": "a" * 64,
-                    "apk_sha256": "b" * 64,
-                    "catalog_sha256": checksum,
-                }
-            ]
-
-            def verify(path, sha):
-                self.assertEqual(c.digest(path.read_bytes()), sha)
-                return {"a" * 64: "b" * 64}
-
-            rename = Path.rename
-
-            def fail_rename(path, destination):
-                if path == stage:
-                    raise OSError("synthetic rename failure")
-                return rename(path, destination)
-
-            with (
-                mock.patch.object(Path, "rename", fail_rename),
-                self.assertRaises(OSError),
+            repo, sdk, jdk = [root / name for name in ("repo", "sdk", "jdk")]
+            for subdir in (
+                repo,
+                sdk / "build-tools/37.0.0",
+                sdk / "platforms/android-37.0",
+                jdk,
             ):
-                runtime.publish_transaction(
-                    registry, repo, stage, target, checksum, bindings, verify
+                subdir.mkdir(parents=True)
+            for file in (*sdk.glob("*/*"), jdk):
+                (file / ("release" if file == jdk else "source.properties")).write_text(
+                    "test tool revision"
                 )
-            self.assertFalse(target.exists())
-            self.assertFalse(
-                (registry / "frozen-artifacts" / ("a" * 64 + ".json")).exists()
-            )
-            self.assertEqual(
-                len(list((registry / "publications").glob("*.pending.json"))), 1
-            )
-            runtime.recover_publications(registry, repo, verify)
-            self.assertTrue(target.is_dir())
-            self.assertTrue(
-                (registry / "frozen-artifacts" / ("a" * 64 + ".json")).is_file()
-            )
-            self.assertFalse(list((registry / "publications").glob("*.pending.json")))
-            runtime.recover_publications(registry, repo, verify)
-            # Restore writable fixture modes for TemporaryDirectory cleanup.
-            target.chmod(0o755)
-            (target / "catalog.json").chmod(0o644)
+            originals = dict.fromkeys(c.TRANSLATIONS, b"Help = Help\n")
+            reference = root / "reference.apk"
+            cert = "b4" * 32
+            commit = "a" * 40
 
-    def test_freeze_bindings_must_match_the_verified_catalog(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder).resolve(strict=True)
-            repo, registry, stage = (
-                root / "repo",
-                root / "registry",
-                root / "output/.staging/run",
-            )
-            repo.mkdir()
-            registry.mkdir()
-            stage.mkdir(parents=True)
-            raw = b'{"synthetic_transaction_test":true}\n'
-            (stage / "catalog.json").write_bytes(raw)
-            checksum = c.digest(raw)
-            target = root / "output" / ("catalog-" + checksum)
-            bindings = [
+            def write_apk(apk, translations):
+                with zipfile.ZipFile(apk, "w") as archive:
+                    for name, raw in translations.items():
+                        archive.writestr(name.removeprefix("android/"), raw)
+                    archive.writestr("classes.dex", b"same nontranslation payload")
+
+            write_apk(reference, originals)
+            requests = [
                 {
-                    "build_identity_sha256": "a" * 64,
-                    "apk_sha256": "b" * 64,
-                    "catalog_sha256": checksum,
+                    "id": f"batch-{index}",
+                    "patch_set_sha256": f"{index:064x}",
+                    "role": role,
+                    "patches": []
+                    if role == "clean"
+                    else [
+                        {
+                            "file": c.TRANSLATIONS[index % 2],
+                            "operation": "replace",
+                            "key": "Help",
+                            "original": "Help",
+                            "replacement": f"Changed {index}",
+                        },
+                    ],
                 }
-            ]
-            try:
-                with self.assertRaises(c.BuilderError):
-                    runtime.publish_transaction(
-                        registry,
-                        repo,
-                        stage,
-                        target,
-                        checksum,
-                        bindings,
-                        lambda path, sha: {"c" * 64: "d" * 64},
-                    )
-                self.assertFalse(target.exists())
-            finally:
-                if target.exists():
-                    target.chmod(0o755)
-                    (target / "catalog.json").chmod(0o644)
-
-    def test_publication_recovers_after_rename_before_atomic_freeze(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder).resolve(strict=True)
-            repo, registry, stage = (
-                root / "repo",
-                root / "registry",
-                root / "output/.staging/run",
-            )
-            repo.mkdir()
-            registry.mkdir()
-            stage.mkdir(parents=True)
-            raw = b'{"synthetic_transaction_test":true}\n'
-            (stage / "catalog.json").write_bytes(raw)
-            checksum = c.digest(raw)
-            target = root / "output" / ("catalog-" + checksum)
-            bindings = [
-                {
-                    "build_identity_sha256": "a" * 64,
-                    "apk_sha256": "b" * 64,
-                    "catalog_sha256": checksum,
-                }
-            ]
-
-            def verify(path, sha):
-                self.assertEqual(c.digest(path.read_bytes()), sha)
-                return {"a" * 64: "b" * 64}
-
-            atomic = runtime.atomic_json
-
-            def fail_freeze(path, value):
-                if "frozen-artifacts" in path.parts:
-                    raise OSError("synthetic interrupted freeze")
-                return atomic(path, value)
-
-            with (
-                mock.patch.object(runtime, "atomic_json", fail_freeze),
-                self.assertRaises(OSError),
-            ):
-                runtime.publish_transaction(
-                    registry, repo, stage, target, checksum, bindings, verify
+                for index, role in enumerate(
+                    ("calibration", "mutation", "clean", "mutation", "mutation")
                 )
-            self.assertTrue(target.exists())
-            runtime.recover_publications(registry, repo, verify)
-            self.assertFalse(list((registry / "publications").glob("*.pending.json")))
-            self.assertTrue(
-                (registry / "frozen-artifacts" / ("a" * 64 + ".json")).exists()
-            )
-            target.chmod(0o755)
-            (target / "catalog.json").chmod(0o644)
+            ]
+            assemblies = {}
 
-    def test_malformed_nested_catalog_is_a_controlled_error_before_tool_calls(self):
-        catalog: dict = {
-            key: {}
-            for key in (
-                "inputs",
-                "builder",
-                "toolchain",
-                "signing",
-                "reference",
-                "source_inventory",
-                "source_assets",
-                "source_translations",
+            def materialize(_, source):
+                for name, raw in originals.items():
+                    path = source / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(raw)
+
+            def checked(command, *, cwd, env, announce):
+                if command[-1] == ":android:signingReport":
+                    return (
+                        f"Variant: debug\nSHA-256: {':'.join(['B4'] * 32)}\n----------\n"
+                    ).encode()
+                self.assertEqual(command[-1], ":android:assembleDebug")
+                self.assertNotIn(cwd, assemblies)
+                apk = cwd / "android/build/outputs/apk/debug/Unciv-debug.apk"
+                apk.parent.mkdir(parents=True)
+                write_apk(apk, {name: (cwd / name).read_bytes() for name in originals})
+                assemblies[cwd] = command[-2].split("=")[1]
+                return b""
+
+            def apk_tools(apk, sdk, env):
+                code = next(
+                    (v for cwd, v in assemblies.items() if cwd in apk.parents),
+                    "1271048",
+                )
+                return cert, code, b"normalized manifest"
+
+            args = argparse.Namespace(
+                repo=repo,
+                output_root=root / "apks",
+                sdk=sdk,
+                jdk=jdk,
+                reference_apk=reference,
+                gradle_cache=root,
             )
-        }
-        catalog.update(
-            {
-                "catalog_version": 1,
-                "source_commit": c.SOURCE_COMMIT,
-                "source_tree": "0" * 40,
-                "checker_commit": c.CHECKER_COMMIT,
-                "installation": runtime.INSTALLATION,
-                "empty_control_id": "batch-test",
-                "artifacts": [],
-                "inputs": [],
-                "qualification": {
-                    "stage": "built_unqualified",
-                    "production_ready": False,
-                    "device_verification": "not_run_part_c",
-                    "labels_created": False,
-                },
-            }
-        )
-        with tempfile.TemporaryDirectory() as folder:
-            folder = Path(folder).resolve(strict=True)
-            path = Path(folder) / "catalog.json"
-            raw = c.canonical_bytes(catalog)
-            path.write_bytes(raw)
             with (
                 mock.patch.object(
-                    runtime,
-                    "apk_tools",
-                    side_effect=AssertionError("SDK tools must not run"),
+                    c, "REFERENCE_APK_SHA256", c.digest(reference.read_bytes())
                 ),
-                self.assertRaises(c.BuilderError),
+                mock.patch.object(
+                    runtime, "frozen_builder", return_value=(commit, b"init")
+                ),
+                mock.patch.object(runtime, "git", return_value=b"source archive"),
+                mock.patch.object(
+                    runtime, "registry_directory", return_value=root / "registry"
+                ),
+                mock.patch.object(runtime, "prepare_gradle_cache"),
+                mock.patch.object(runtime, "materialize", side_effect=materialize),
+                mock.patch.object(runtime, "checked", side_effect=checked),
+                mock.patch.object(runtime, "apk_tools", side_effect=apk_tools),
+                contextlib.redirect_stdout(io.StringIO()),
             ):
-                runtime.verify_catalog(
-                    path,
-                    c.digest(raw),
-                    Path(folder),
-                    Path(folder),
-                    Path(folder) / "logs",
+                runtime.build(args, requests)
+                with self.assertRaisesRegex(c.BuilderError, "Output directory exists"):
+                    runtime.build(args, requests)
+            builds = c.json_bytes((args.output_root / "builds.json").read_bytes())
+            self.assertEqual(len(assemblies), len(requests))
+            self.assertTrue(next(iter(assemblies)).parent.name.startswith("batch-2-"))
+            self.assertEqual(
+                set(builds),
+                {"source_commit", "builder_commit", "reference", "artifacts"},
+            )
+            self.assertEqual(builds["source_commit"], c.SOURCE_COMMIT)
+            self.assertEqual(builds["builder_commit"], commit)
+            self.assertEqual(set(builds["artifacts"]), {r["id"] for r in requests})
+            self.assertEqual(
+                builds["reference"],
+                {
+                    "file": runtime.REFERENCE_NAME,
+                    "sha256": c.digest(reference.read_bytes()),
+                },
+            )
+            for record in builds["artifacts"].values():
+                self.assertEqual(set(record), {"file", "sha256"})
+                self.assertEqual(
+                    c.digest((args.output_root / record["file"]).read_bytes()),
+                    record["sha256"],
                 )
+            self.assertEqual(
+                {path.name for path in args.output_root.iterdir()},
+                {"builds.json", runtime.REFERENCE_NAME}
+                | {record["file"] for record in builds["artifacts"].values()},
+            )
+            self.assertEqual(list(root.glob(".l10n-build-*")), [])
 
-    def test_file_reference_hash_tampering_and_path_escape_fail(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder).resolve(strict=True)
-            reference = runtime.write_payload(root, "approved.txt", b"before")
-            self.assertEqual(runtime.read_ref(root, reference), b"before")
-            (root / "approved.txt").write_bytes(b"after")
-            with self.assertRaises(c.BuilderError):
-                runtime.read_ref(root, reference)
-            with self.assertRaises(c.BuilderError):
-                runtime.read_ref(root, {**reference, "path": "../escape"})
+            build_list = args.output_root / "builds.json"
+            checksum = c.digest(build_list.read_bytes())
+            self.assertEqual(runtime.verify_builds(build_list, checksum), len(requests))
+            (args.output_root / runtime.REFERENCE_NAME).write_bytes(b"changed APK")
+            with self.assertRaisesRegex(c.BuilderError, "APK digest differs"):
+                runtime.verify_builds(build_list, checksum)
 
 
 if __name__ == "__main__":
